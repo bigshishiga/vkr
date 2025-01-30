@@ -3,18 +3,21 @@ import argparse
 import torch
 from tqdm import tqdm
 import gradio as gr
+from PIL import Image
 
 from region_utils.drag import drag, get_drag_data, get_meta_data
 from region_utils.evaluator import DragEvaluator
 
 # Setting up the argument parser
 parser = argparse.ArgumentParser(description='Run the drag operation.')
-parser.add_argument('--data_dir', type=str, default='drag_data/dragbench-dr/') # OR 'drag_data/dragbench-sr/'
+parser.add_argument('--data-dir', type=str) # 'drag_data/dragbench-dr' OR 'drag_data/dragbench-sr'
+parser.add_argument('--save-dir', type=str, default=None)
 args = parser.parse_args()
 
 evaluator = DragEvaluator()
 all_distances = []; all_lpips = []
 
+save_dir = args.save_dir
 data_dir = args.data_dir
 data_dirs = [dirpath for dirpath, dirnames, _ in os.walk(data_dir) if not dirnames]
 
@@ -29,6 +32,14 @@ for data_path in tqdm(data_dirs):
     drag_data = get_drag_data(data_path)
     ori_image = drag_data['ori_image']
     out_image = drag(drag_data, steps, start_t, end_t, noise_scale, seed, progress=gr.Progress())
+
+    if save_dir is not None:
+        if "dragbench-sr" in data_path:
+            tail = data_path.split("dragbench-sr/")[-1]
+        elif "dragbench-dr" in data_path:
+            tail = data_path.split("dragbench-dr/")[-1]
+
+        Image.fromarray(out_image).save(f"{save_dir}/{tail}.png")
 
     # Point-based Inputs for Evaluation
     meta_data_path = os.path.join(data_path, 'meta_data.pkl')
