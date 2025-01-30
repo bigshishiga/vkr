@@ -51,6 +51,6 @@ for data_path in tqdm(data_dirs):
     all_lpips.append(evaluator.compute_lpips(ori_image, out_image))
 
 if all_distances:
-    mean_dist = torch.tensor(all_distances).mean().item()
-    mean_lpips = torch.tensor(all_lpips).mean().item()
+    mean_dist = torch.tensor(all_distances).mean().item() * 100
+    mean_lpips = torch.tensor(all_lpips).mean().item() * 100
     print(f'MD: {mean_dist:.4f}\nLPIPS: {mean_lpips:.4f}\n')
