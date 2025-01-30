@@ -17,8 +17,8 @@ args = parser.parse_args()
 evaluator = DragEvaluator()
 all_distances = []; all_lpips = []
 
-save_dir = args.save_dir
-data_dir = args.data_dir
+save_dir = args.save_dir.removesuffix("/")
+data_dir = args.data_dir.removesuffix("/")
 data_dirs = [dirpath for dirpath, dirnames, _ in os.walk(data_dir) if not dirnames]
 
 start_t = 0.5
@@ -39,7 +39,9 @@ for data_path in tqdm(data_dirs):
         elif "dragbench-dr" in data_path:
             tail = data_path.split("dragbench-dr/")[-1]
 
-        Image.fromarray(out_image).save(f"{save_dir}/{tail}.png")
+        save_name = f"{save_dir}/{tail}.png"
+        os.makedirs(os.path.dirname(save_name), exist_ok=True)
+        Image.fromarray(out_image).save(save_name)
 
     # Point-based Inputs for Evaluation
     meta_data_path = os.path.join(data_path, 'meta_data.pkl')
