@@ -1,0 +1,8 @@
+.venv
+.vscode
+checkpoints
+drag_data
+results
+*.jpeg
+test.ipynb
+
