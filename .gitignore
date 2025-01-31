@@ -1,8 +1,11 @@
 .venv
 .vscode
+.DS_Store
 checkpoints
 drag_data
-results
+masks
+demo
+saved
 *.jpeg
 test.ipynb
-regiondrag/__pycache__
+__pycache__

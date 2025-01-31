@@ -16,7 +16,7 @@ from PIL import Image
 from PIL.ImageOps import exif_transpose
 from safetensors.torch import load_file
 
-from utils.flow_utils import flow_to_image, resize_flow
+from instantdrag.utils.flow_utils import flow_to_image, resize_flow
 from flowgen.models import UnetGenerator
 from flowdiffusion.pipeline import FlowDiffusionPipeline
 
