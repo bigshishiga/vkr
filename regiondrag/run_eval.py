@@ -75,4 +75,7 @@ if all_distances:
         lpips = np.array(all_lpips)
 
         filepath = f"{save_dir}/{bench}/metrics.npz"
-        np.savez(filepath, md=md, lpips=lpips, names=all_names)
+        np.savez(
+            filepath, md=md, lpips=lpips, names=all_names,
+            mean_md=np.array(mean_dist), mean_lpips=np.array(mean_lpips)
+        )
