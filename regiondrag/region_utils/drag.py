@@ -148,6 +148,42 @@ def backward(scheduler, sampler, steps, start_t, end_t, noise_scale, hook_latent
         latent = sampler.sample(t, latent, cfg_scales.pop(), text_embeddings, sde=sde, noise=noises.pop(), added_cond_kwargs=added_cond_kwargs)
     return latent
 
+@torch.no_grad()
+def drag_copy_paste(drag_data, device=None):
+    torch_dtype = torch.float16 if 'cuda' in device else torch.float32
+
+    global vae, tokenizer, text_encoder, unet, scheduler, feature_extractor, image_encoder, tokenizer_2, text_encoder_2
+    if 'vae' not in globals():
+        vae, tokenizer, text_encoder, unet, scheduler, feature_extractor, image_encoder, tokenizer_2, text_encoder_2 = load_model(sd_version, torch_device=device, torch_dtype=torch_dtype)
+
+    ori_image, preview, prompt, mask, source, target = drag_data.values()
+    source //= 8
+    target //= 8
+
+    source_latent = get_img_latent(ori_image, vae, torch_device=device, dtype=torch_dtype)
+    target_latent = source_latent.clone()
+    target_latent = copy_and_paste(source_latent, target_latent, source, target)
+    target_image = postprocess(vae, target_latent, ori_image, mask)
+
+    return target_image
+
+@torch.no_grad()
+def drag_id(drag_data, device=None):
+    torch_dtype = torch.float16 if 'cuda' in device else torch.float32
+
+    global vae, tokenizer, text_encoder, unet, scheduler, feature_extractor, image_encoder, tokenizer_2, text_encoder_2
+    if 'vae' not in globals():
+        vae, tokenizer, text_encoder, unet, scheduler, feature_extractor, image_encoder, tokenizer_2, text_encoder_2 = load_model(sd_version, torch_device=device, torch_dtype=torch_dtype)
+
+    ori_image, preview, prompt, mask, source, target = drag_data.values()
+    source //= 8
+    target //= 8
+
+    source_latent = get_img_latent(ori_image, vae, torch_device=device, dtype=torch_dtype)
+    target_image = postprocess(vae, source_latent, ori_image, mask)
+
+    return target_image
+
 def drag(drag_data, steps, start_t, end_t, noise_scale, seed, progress=tqdm, method='Encode then CP', save_path='', device=None):
     set_seed(seed)
     ori_image, preview, prompt, mask, source, target = drag_data.values()
