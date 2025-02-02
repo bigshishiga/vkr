@@ -148,15 +148,16 @@ def backward(scheduler, sampler, steps, start_t, end_t, noise_scale, hook_latent
         latent = sampler.sample(t, latent, cfg_scales.pop(), text_embeddings, sde=sde, noise=noises.pop(), added_cond_kwargs=added_cond_kwargs)
     return latent
 
-def drag(drag_data, steps, start_t, end_t, noise_scale, seed, progress=tqdm, method='Encode then CP', save_path=''):
+def drag(drag_data, steps, start_t, end_t, noise_scale, seed, progress=tqdm, method='Encode then CP', save_path='', device=None):
     set_seed(seed)
-    device = 'cuda'
     ori_image, preview, prompt, mask, source, target = drag_data.values()
+
+    torch_dtype = torch.float16 if 'cuda' in device else torch.float32
     
     if method in ('Encode then CP', 'CP then Encode'):
         global vae, tokenizer, text_encoder, unet, scheduler, feature_extractor, image_encoder, tokenizer_2, text_encoder_2
         if 'vae' not in globals():
-            vae, tokenizer, text_encoder, unet, scheduler, feature_extractor, image_encoder, tokenizer_2, text_encoder_2 = load_model(sd_version)
+            vae, tokenizer, text_encoder, unet, scheduler, feature_extractor, image_encoder, tokenizer_2, text_encoder_2 = load_model(sd_version, torch_device=device, torch_dtype=torch_dtype)
 
         def copy_key_hook(module, input, output):
             keys.append(output)
@@ -183,7 +184,8 @@ def drag(drag_data, steps, start_t, end_t, noise_scale, seed, progress=tqdm, met
         def unregister(*handlers):
             for handler in handlers:
                 handler.remove()
-            torch.cuda.empty_cache()
+            if device == 'cuda':
+                torch.cuda.empty_cache()
         
         sde = encode_then_cp = method == 'Encode then CP'
         source = torch.from_numpy(source).to(device) if isinstance(source, np.ndarray) else source.to(device)
@@ -197,14 +199,14 @@ def drag(drag_data, steps, start_t, end_t, noise_scale, seed, progress=tqdm, met
             copy_pts = target
         paste_pts = target
         
-        latent = get_img_latent(ori_image, vae)
-        preview_latent = get_img_latent(preview, vae) if not encode_then_cp else None
+        latent = get_img_latent(ori_image, vae, torch_device=device, dtype=torch_dtype)
+        preview_latent = get_img_latent(preview, vae, device=device) if not encode_then_cp else None
         sampler = Sampler(unet=unet, scheduler=scheduler, num_steps=steps)
 
         with torch.no_grad():
-            neg_pooled_prompt_embeds, neg_prompt_embeds = get_text_embed("", tokenizer, text_encoder, tokenizer_2, text_encoder_2)
+            neg_pooled_prompt_embeds, neg_prompt_embeds = get_text_embed("", tokenizer, text_encoder, tokenizer_2, text_encoder_2, torch_device=device)
             neg_prompt_embeds = neg_prompt_embeds if sd_version == 'xl' else neg_pooled_prompt_embeds
-            pooled_prompt_embeds, prompt_embeds = get_text_embed(prompt, tokenizer, text_encoder, tokenizer_2, text_encoder_2)
+            pooled_prompt_embeds, prompt_embeds = get_text_embed(prompt, tokenizer, text_encoder, tokenizer_2, text_encoder_2, torch_device=device)
             prompt_embeds = prompt_embeds if sd_version == 'xl' else pooled_prompt_embeds
             prompt_embeds = torch.cat([neg_prompt_embeds, prompt_embeds], dim=0)
             pooled_prompt_embeds = torch.cat([neg_pooled_prompt_embeds, pooled_prompt_embeds], dim=0)
@@ -270,5 +272,6 @@ def drag(drag_data, steps, start_t, end_t, noise_scale, seed, progress=tqdm, met
                 Image.fromarray(image).save(full_path)
                 break
             counter += 1
-    torch.cuda.empty_cache()
+    if device == 'cuda':
+        torch.cuda.empty_cache()
     return image

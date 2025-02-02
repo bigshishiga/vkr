@@ -49,7 +49,7 @@ def get_text_embed(prompt: list, tokenizer, text_encoder, tokenizer_2=None, text
     return pooled_prompt_embeds, prompt_embeds
 
 @torch.no_grad()
-def get_img_latent(image, vae, torch_device='cuda', dtype=torch.float16, size=None):
+def get_img_latent(image, vae, torch_device=None, dtype=torch.float16, size=None):
     # upcast vae for sdxl, attention blocks can be in torch.float16
     upcast_dtype = torch.float32 if 'xl-base-1.0' in vae.config._name_or_path and dtype == torch.float16 else dtype
     if dtype == torch.float16:

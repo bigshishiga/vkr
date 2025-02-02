@@ -12,14 +12,16 @@ from region_utils.evaluator import DragEvaluator
 parser = argparse.ArgumentParser(description='Run the drag operation.')
 parser.add_argument('--data-dir', type=str) # 'drag_data/dragbench-dr' OR 'drag_data/dragbench-sr'
 parser.add_argument('--save-dir', type=str, default=None)
+parser.add_argument('--device', type=str, default='cuda')
 args = parser.parse_args()
 
 evaluator = DragEvaluator()
 all_distances = []; all_lpips = []
 
-save_dir = args.save_dir.removesuffix("/")
+save_dir = None if args.save_dir is None else args.save_dir.removesuffix("/")
 data_dir = args.data_dir.removesuffix("/")
 data_dirs = [dirpath for dirpath, dirnames, _ in os.walk(data_dir) if not dirnames]
+device = args.device
 
 start_t = 0.5
 end_t = 0.2
@@ -31,7 +33,7 @@ for data_path in tqdm(data_dirs):
     # Region-based Inputs for Editing
     drag_data = get_drag_data(data_path)
     ori_image = drag_data['ori_image']
-    out_image = drag(drag_data, steps, start_t, end_t, noise_scale, seed, progress=gr.Progress())
+    out_image = drag(drag_data, steps, start_t, end_t, noise_scale, seed, progress=gr.Progress(), device=device)
 
     if save_dir is not None:
         if "dragbench-sr" in data_path:
