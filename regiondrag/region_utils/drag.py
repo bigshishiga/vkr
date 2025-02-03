@@ -137,13 +137,15 @@ def forward(scheduler, sampler, steps, start_t, latent, text_embeddings, added_c
 def backward(scheduler, sampler, steps, start_t, end_t, noise_scale, hook_latents, noises, cfg_scales, mask, text_embeddings, added_cond_kwargs, blur, source, target, progress=tqdm, latent=None, sde=True):
     start_t = int(start_t * steps)
     end_t = int(end_t * steps)
+    step_len = 1000 // steps
 
     latent = hook_latents[-1].clone() if latent is None else latent
     latent = blur_source(latent, noise_scale, blur)
 
     for t in progress(scheduler.timesteps[(steps-start_t- 1):-1]):
         hook_latent = hook_latents.pop()
-        latent = copy_and_paste(hook_latent, latent, source, target) if t >= end_t else latent
+        do_copy = round((t / step_len).item()) > end_t + 1
+        latent = copy_and_paste(hook_latent, latent, source, target) if do_copy else latent
         latent = torch.where(mask == 1, latent, hook_latent)
         latent = sampler.sample(t, latent, cfg_scales.pop(), text_embeddings, sde=sde, noise=noises.pop(), added_cond_kwargs=added_cond_kwargs)
     return latent
