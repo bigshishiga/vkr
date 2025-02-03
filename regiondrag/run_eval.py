@@ -23,6 +23,8 @@ parser.add_argument('--noise-scale', type=float, default=1.0)
 parser.add_argument('--disable-kv-copy', action='store_true')
 args = parser.parse_args()
 
+print(args)
+
 evaluator = DragEvaluator()
 all_distances = []; all_lpips = []; all_names = []
 
@@ -39,7 +41,6 @@ end_t = args.end_t
 steps = args.steps
 noise_scale = args.noise_scale
 seed = args.seed
-
 
 for data_path in tqdm(data_dirs):
     # Region-based Inputs for Editing
