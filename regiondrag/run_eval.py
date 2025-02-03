@@ -20,7 +20,7 @@ parser.add_argument('--start-t', type=float, default=0.5)
 parser.add_argument('--end-t', type=float, default=0.2)
 parser.add_argument('--steps', type=int, default=20)
 parser.add_argument('--noise-scale', type=float, default=1.0)
-parser.add_argument('--disable-kv-copy', type=bool, default=False)
+parser.add_argument('--disable-kv-copy', action='store_true')
 args = parser.parse_args()
 
 evaluator = DragEvaluator()
@@ -47,7 +47,8 @@ for data_path in tqdm(data_dirs):
     ori_image = drag_data['ori_image']
 
     if method == 'regiondrag':
-        out_image = drag(drag_data, steps, start_t, end_t, noise_scale, seed, progress=gr.Progress(), device=device)
+        out_image = drag(drag_data, steps, start_t, end_t, noise_scale, seed,
+                         progress=gr.Progress(), device=device, disable_kv_copy=args.disable_kv_copy)
     elif method == 'copy':
         out_image = drag_copy_paste(drag_data, device=device) 
     elif method == 'id':
