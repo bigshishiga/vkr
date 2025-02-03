@@ -39,6 +39,7 @@ steps = args.steps
 noise_scale = args.noise_scale
 seed = args.seed
 
+
 for data_path in tqdm(data_dirs):
     # Region-based Inputs for Editing
     drag_data = get_drag_data(data_path)
