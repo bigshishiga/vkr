@@ -24,6 +24,8 @@ parser.add_argument('--disable-kv-copy', action='store_true')
 args = parser.parse_args()
 
 print(args)
+print('Current commit:')
+os.system('git log -1')
 
 evaluator = DragEvaluator()
 all_distances = []; all_lpips = []; all_names = []
