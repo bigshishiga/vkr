@@ -20,6 +20,7 @@ parser.add_argument('--start-t', type=float, default=0.5)
 parser.add_argument('--end-t', type=float, default=0.2)
 parser.add_argument('--steps', type=int, default=20)
 parser.add_argument('--noise-scale', type=float, default=1.0)
+parser.add_argument('--disable-kv-copy', type=bool, default=False)
 args = parser.parse_args()
 
 evaluator = DragEvaluator()

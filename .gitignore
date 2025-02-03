@@ -182,4 +182,5 @@ demo
 saved
 minibench
 *.jpeg
+*.png
 test.ipynb

@@ -184,7 +184,19 @@ def drag_id(drag_data, device=None):
 
     return target_image
 
-def drag(drag_data, steps, start_t, end_t, noise_scale, seed, progress=tqdm, method='Encode then CP', save_path='', device=None):
+def drag(
+        drag_data,
+        steps,
+        start_t,
+        end_t,
+        noise_scale,
+        seed,
+        progress=tqdm,
+        method='Encode then CP',
+        save_path='',
+        device=None,
+        disable_kv_copy=False,
+    ):
     set_seed(seed)
     ori_image, preview, prompt, mask, source, target = drag_data.values()
 
@@ -196,13 +208,17 @@ def drag(drag_data, steps, start_t, end_t, noise_scale, seed, progress=tqdm, met
             vae, tokenizer, text_encoder, unet, scheduler, feature_extractor, image_encoder, tokenizer_2, text_encoder_2 = load_model(sd_version, torch_device=device, torch_dtype=torch_dtype)
 
         def copy_key_hook(module, input, output):
-            keys.append(output)
+            if not disable_kv_copy:
+                keys.append(output)
         def copy_value_hook(module, input, output):
-            values.append(output)
+            if not disable_kv_copy:
+                values.append(output)
         def paste_key_hook(module, input, output):
-            output[:] = keys.pop()
+            if not disable_kv_copy:
+                output[:] = keys.pop()
         def paste_value_hook(module, input, output):
-            output[:] = values.pop()
+            if not disable_kv_copy:
+                output[:] = values.pop()
 
         def register(do='copy'):
             do_copy = do == 'copy'
