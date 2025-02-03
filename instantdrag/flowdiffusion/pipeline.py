@@ -361,7 +361,7 @@ class FlowDiffusionPipeline(
         device,
         do_classifier_free_guidance,
     ):
-        prompt_embeds = self.null_prompt_embeds.to(dtype=torch.float16, device=device) # 1 77 512
+        prompt_embeds = self.null_prompt_embeds.to(dtype=self.dtype, device=device) # 1 77 512
         
         if do_classifier_free_guidance: # We are only doing cfg for image and flow
             prompt_embeds = torch.cat([prompt_embeds, prompt_embeds, prompt_embeds]) # 3 77 512

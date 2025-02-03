@@ -143,7 +143,8 @@ class InstantDragPipeline:
             else:
                 target_points.append(cur_point)
 
-        torch.cuda.synchronize()
+        if 'cuda' in self.device:
+            torch.cuda.synchronize()
         start_time = time.time()
 
         # Generate sparse flow vectors

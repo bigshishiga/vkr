@@ -299,7 +299,7 @@ def drag(
     elif method == 'InstantDrag':
         global instant_pipe
         if 'instant_pipe' not in globals():
-            instant_pipe = InstantDragPipeline(seed, 'cuda', torch.float16)
+            instant_pipe = InstantDragPipeline(seed, device, (torch.float16 if 'cuda' in device else torch.float32))
         flowgen_ckpt =  next((m for m in sorted(os.listdir("checkpoints/")) if "flowgen" in m), None)
         flowdiffusion_ckpt = next(f for f in sorted(os.listdir("checkpoints/")) if "flowdiffusion" in f)
 

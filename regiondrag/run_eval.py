@@ -12,9 +12,9 @@ from region_utils.evaluator import DragEvaluator
 # Setting up the argument parser
 parser = argparse.ArgumentParser(description='Run the drag operation.')
 parser.add_argument('--data-dir', type=str) # 'drag_data/dragbench-dr' OR 'drag_data/dragbench-sr'
-parser.add_argument('--save-dir', type=str, default='saved')
+parser.add_argument('--save-dir', type=str, default=None)
 parser.add_argument('--device', type=str, default='cuda')
-parser.add_argument('--method', type=str, default='regiondrag') # 'regiondrag' OR 'copy' OR 'id'
+parser.add_argument('--method', type=str, default='regiondrag') # 'regiondrag' OR 'instantdrag' OR 'copy' OR 'id'
 parser.add_argument('--seed', type=int, default=42)
 parser.add_argument('--start-t', type=float, default=0.5)
 parser.add_argument('--end-t', type=float, default=0.2)
@@ -46,9 +46,10 @@ for data_path in tqdm(data_dirs):
     drag_data = get_drag_data(data_path)
     ori_image = drag_data['ori_image']
 
-    if method == 'regiondrag':
+    if method in ('regiondrag', 'instantdrag'):
         out_image = drag(drag_data, steps, start_t, end_t, noise_scale, seed,
-                         progress=gr.Progress(), device=device, disable_kv_copy=args.disable_kv_copy)
+                         progress=gr.Progress(), device=device, disable_kv_copy=args.disable_kv_copy,
+                         method='Encode then CP' if method == 'regiondrag' else 'InstantDrag')
     elif method == 'copy':
         out_image = drag_copy_paste(drag_data, device=device) 
     elif method == 'id':
