@@ -185,7 +185,7 @@ class DragEvaluator:
         self.lpips_loaded = False
     
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.dtype = torch.float16
+        self.dtype = torch.float16 if self.device == 'cuda' else torch.float32
     
     def load_dino(self):
         if not self.dino_loaded:

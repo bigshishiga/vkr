@@ -200,7 +200,13 @@ def drag(
         disable_kv_copy=False,
     ):
     set_seed(seed)
-    ori_image, preview, prompt, mask, source, target = drag_data.values()
+    # ori_image, preview, prompt, mask, source, target = drag_data.values()
+    ori_image = drag_data['ori_image']
+    preview = drag_data['preview']
+    prompt = drag_data['prompt']
+    mask = drag_data['mask']
+    source = drag_data['source']
+    target = drag_data['target']
 
     torch_dtype = torch.float16 if 'cuda' in device else torch.float32
     
@@ -253,7 +259,10 @@ def drag(
             copy_pts = target
         paste_pts = target
         
-        latent = get_img_latent(ori_image, vae, torch_device=device, dtype=torch_dtype)
+        if 'out_latent' not in drag_data:
+            latent = get_img_latent(ori_image, vae, torch_device=device, dtype=torch_dtype)
+        else:
+            latent = drag_data['out_latent']
         preview_latent = get_img_latent(preview, vae, device=device) if not encode_then_cp else None
         sampler = Sampler(unet=unet, scheduler=scheduler, num_steps=steps)
 
@@ -294,6 +303,7 @@ def drag(
             latent = backward(scheduler, sampler, steps, start_t, end_t, noise_scale, hook_latents, noises, cfg_scales, mask_pt, prompt_embeds, added_cond_kwargs, blur_pts, copy_pts, paste_pts, latent=start_latent, progress=progress, sde=sde)
             unregister(*key_handlers, *value_handlers)
 
+            drag_data['out_latent'] = latent
             image = postprocess(vae, latent, ori_image, mask)
 
     elif method == 'InstantDrag':

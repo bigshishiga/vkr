@@ -21,6 +21,8 @@ parser.add_argument('--end-t', type=float, default=0.2)
 parser.add_argument('--steps', type=int, default=20)
 parser.add_argument('--noise-scale', type=float, default=1.0)
 parser.add_argument('--disable-kv-copy', action='store_true')
+parser.add_argument('--n-edits', type=int, default=1)
+parser.add_argument('--skip-evaluation', action='store_true')
 args = parser.parse_args()
 
 print(args)
@@ -35,6 +37,7 @@ data_dir = args.data_dir.removesuffix("/")
 data_dirs = [dirpath for dirpath, dirnames, _ in os.walk(data_dir) if not dirnames]
 device = args.device
 method = args.method
+n_edits = args.n_edits
 
 bench = data_dir.split("/")[-1]
 
@@ -47,12 +50,23 @@ seed = args.seed
 for data_path in tqdm(data_dirs):
     # Region-based Inputs for Editing
     drag_data = get_drag_data(data_path)
-    ori_image = drag_data['ori_image']
+    ori_image = drag_data['ori_image'].copy()
 
     if method in ('regiondrag', 'instantdrag'):
-        out_image = drag(drag_data, steps, start_t, end_t, noise_scale, seed,
-                         progress=gr.Progress(), device=device, disable_kv_copy=args.disable_kv_copy,
-                         method='Encode then CP' if method == 'regiondrag' else 'InstantDrag')
+        source = drag_data['source'].copy()
+        target = drag_data['target'].copy()
+        dir = target - source
+
+        for i in range(n_edits):
+            source_i = np.round(source + dir * i / n_edits).astype(np.int64)
+            target_i = np.round(source + dir * (i + 1) / n_edits).astype(np.int64)
+            drag_data['source'] = source_i
+            drag_data['target'] = target_i
+
+            out_image = drag(drag_data, steps, start_t, end_t, noise_scale, seed,
+                            progress=gr.Progress(), device=device, disable_kv_copy=args.disable_kv_copy,
+                            method='Encode then CP' if method == 'regiondrag' else 'InstantDrag')
+            drag_data['ori_image'] = out_image 
     elif method == 'copy':
         out_image = drag_copy_paste(drag_data, device=device) 
     elif method == 'id':
@@ -63,13 +77,14 @@ for data_path in tqdm(data_dirs):
         os.makedirs(os.path.dirname(save_name), exist_ok=True)
         Image.fromarray(out_image).save(save_name)
 
-    # Point-based Inputs for Evaluation
-    meta_data_path = os.path.join(data_path, 'meta_data.pkl')
-    prompt, _, source, target = get_meta_data(meta_data_path)    
+    if not args.skip_evaluation:
+        # Point-based Inputs for Evaluation
+        meta_data_path = os.path.join(data_path, 'meta_data.pkl')
+        prompt, _, source, target = get_meta_data(meta_data_path)    
 
-    all_distances.append(evaluator.compute_distance(ori_image, out_image, source, target, method='sd', prompt=prompt))
-    all_lpips.append(evaluator.compute_lpips(ori_image, out_image))
-    all_names.append(data_path)
+        all_distances.append(evaluator.compute_distance(ori_image, out_image, source, target, method='sd', prompt=prompt))
+        all_lpips.append(evaluator.compute_lpips(ori_image, out_image))
+        all_names.append(data_path)
 
 
 if all_distances:
