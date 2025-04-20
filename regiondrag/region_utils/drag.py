@@ -1,3 +1,4 @@
+import typing
 import math
 import os
 import numpy as np
@@ -12,7 +13,7 @@ import torch.nn.functional as F
 import sys
 sys.path.append('.')
 
-from regiondrag.region_utils.cycle_sde import Sampler, get_img_latent, get_text_embed, load_model, set_seed
+from regiondrag.region_utils.cycle_sde import Sampler, GuidanceSampler, get_img_latent, get_text_embed, load_model, set_seed
 
 # select version from v1-5 (recommended), v2-1, xl
 sd_version = 'v1-5'
@@ -110,6 +111,8 @@ def blur_source(latents, noise_scale, source):
     return latents
 
 def ip_encode_image(feature_extractor, image_encoder, image):
+    if image_encoder is None:
+        return None
     dtype = next(image_encoder.parameters()).dtype
     device = next(image_encoder.parameters()).device
 
@@ -148,6 +151,28 @@ def backward(scheduler, sampler, steps, start_t, end_t, noise_scale, hook_latent
         latent = copy_and_paste(hook_latent, latent, source, target) if do_copy else latent
         latent = torch.where(mask == 1, latent, hook_latent)
         latent = sampler.sample(t, latent, cfg_scales.pop(), text_embeddings, sde=sde, noise=noises.pop(), added_cond_kwargs=added_cond_kwargs)
+    return latent
+
+def backward_guidance(scheduler, sampler, steps, start_t, end_t, inv_latents, inv_features, noises, cfg_scales, mask, text_embeddings, added_cond_kwargs, source, target, progress=tqdm, latent=None, sde=True):
+    assert isinstance(sampler, GuidanceSampler)
+
+    start_t = int(start_t * steps)
+    end_t = int(end_t * steps)
+    step_len = 1000 // steps
+
+    latent = inv_latents[-1].clone() if latent is None else latent
+
+    for t in progress(scheduler.timesteps[(steps-start_t- 1):-1]):
+        inv_latent = inv_latents.pop()
+        do_guide = round((t / step_len).item()) > end_t + 1
+        if do_guide:
+            latent = sampler.sample(
+                t, latent, cfg_scales.pop(), text_embeddings, sde=sde, noise=noises.pop(), added_cond_kwargs=added_cond_kwargs,
+                inversion_feature_map=inv_features.pop(), source=source, target=target
+            )
+        else:
+            latent = sampler.sample(t, latent, cfg_scales.pop(), text_embeddings, sde=sde, noise=noises.pop(), added_cond_kwargs=added_cond_kwargs)
+        latent = torch.where(mask == 1, latent, inv_latent)
     return latent
 
 @torch.no_grad()
@@ -194,15 +219,16 @@ def drag(
         noise_scale,
         seed,
         progress=tqdm,
-        method='Encode then CP',
-        save_path='',
+        method=None,
         device=None,
         disable_kv_copy=False,
+        disable_ip_adapter=False,
+        guidance_layer: int = 2,
+        guidance_weight: float = 1.0,
     ):
+    assert guidance_layer in (0, 1, 2, 3)
     set_seed(seed)
-    # ori_image, preview, prompt, mask, source, target = drag_data.values()
     ori_image = drag_data['ori_image']
-    preview = drag_data['preview']
     prompt = drag_data['prompt']
     mask = drag_data['mask']
     source = drag_data['source']
@@ -210,61 +236,66 @@ def drag(
 
     torch_dtype = torch.float16 if 'cuda' in device else torch.float32
     
-    if method in ('Encode then CP', 'CP then Encode'):
+    if method in ('regiondrag', 'guidance'):
         global vae, tokenizer, text_encoder, unet, scheduler, feature_extractor, image_encoder, tokenizer_2, text_encoder_2
         if 'vae' not in globals():
-            vae, tokenizer, text_encoder, unet, scheduler, feature_extractor, image_encoder, tokenizer_2, text_encoder_2 = load_model(sd_version, torch_device=device, torch_dtype=torch_dtype)
+            vae, tokenizer, text_encoder, unet, scheduler, feature_extractor, image_encoder, tokenizer_2, text_encoder_2 = load_model(sd_version, torch_device=device, torch_dtype=torch_dtype, ip_adapter=not disable_ip_adapter)
 
         def copy_key_hook(module, input, output):
-            if not disable_kv_copy:
-                keys.append(output)
+            keys.append(output)
         def copy_value_hook(module, input, output):
-            if not disable_kv_copy:
-                values.append(output)
+            values.append(output)
         def paste_key_hook(module, input, output):
-            if not disable_kv_copy:
-                output[:] = keys.pop()
+            output[:] = keys.pop()
         def paste_value_hook(module, input, output):
-            if not disable_kv_copy:
-                output[:] = values.pop()
+            output[:] = values.pop()
+        def save_features_hook(module, input, output):
+            features.append(output)
 
         def register(do='copy'):
+            key_handlers = []; value_handlers = []; feature_handlers = []
             do_copy = do == 'copy'
-            key_hook, value_hook = (copy_key_hook, copy_value_hook) if do_copy else (paste_key_hook, paste_value_hook)
-            key_handlers = []; value_handlers = []
-            for block in (*sampler.unet.down_blocks, sampler.unet.mid_block, *sampler.unet.up_blocks):
-                if not hasattr(block, 'attentions'):
-                    continue
-                for attention in block.attentions:
-                    for tb in attention.transformer_blocks:
-                        key_handlers.append(tb.attn1.to_k.register_forward_hook(key_hook))
-                        value_handlers.append(tb.attn1.to_v.register_forward_hook(value_hook))
-            return key_handlers, value_handlers
+            do_guide = method == 'guidance'
+
+            if not disable_kv_copy:
+                key_hook, value_hook = (copy_key_hook, copy_value_hook) if do_copy else (paste_key_hook, paste_value_hook)
+                for block in (*sampler.unet.down_blocks, sampler.unet.mid_block, *sampler.unet.up_blocks):
+                    if not hasattr(block, 'attentions'):
+                        continue
+                    for attention in block.attentions:
+                        for tb in attention.transformer_blocks:
+                            key_handlers.append(tb.attn1.to_k.register_forward_hook(key_hook))
+                            value_handlers.append(tb.attn1.to_v.register_forward_hook(value_hook))
+            
+            if do_guide and do_copy:
+                block = sampler.unet.up_blocks[guidance_layer]
+                feature_handlers.append(block.register_forward_hook(save_features_hook))
+
+            return key_handlers, value_handlers, feature_handlers
 
         def unregister(*handlers):
             for handler in handlers:
                 handler.remove()
             if device == 'cuda':
                 torch.cuda.empty_cache()
-        
-        sde = encode_then_cp = method == 'Encode then CP'
+
         source = torch.from_numpy(source).to(device) if isinstance(source, np.ndarray) else source.to(device)
         target = torch.from_numpy(target).to(device) if isinstance(target, np.ndarray) else target.to(device)
         source = source // 8; target = target // 8 # from img scale to latent scale
 
-        if encode_then_cp:
-            blur_pts = source; copy_pts = source
-        else:
-            blur_pts = torch.cat([torch.from_numpy(get_border_points(target.cpu().numpy())).to(device), source], dim=0)
-            copy_pts = target
+        blur_pts = source; copy_pts = source
         paste_pts = target
         
         if 'out_latent' not in drag_data:
             latent = get_img_latent(ori_image, vae, torch_device=device, dtype=torch_dtype)
         else:
             latent = drag_data['out_latent']
-        preview_latent = get_img_latent(preview, vae, device=device) if not encode_then_cp else None
-        sampler = Sampler(unet=unet, scheduler=scheduler, num_steps=steps)
+        
+        if method == 'guidance':
+            sampler = GuidanceSampler(unet=unet, scheduler=scheduler, num_steps=steps,
+                                      guidance_weight=guidance_weight, guidance_layer=guidance_layer)
+        else:
+            sampler = Sampler(unet=unet, scheduler=scheduler, num_steps=steps)
 
         with torch.no_grad():
             neg_pooled_prompt_embeds, neg_prompt_embeds = get_text_embed("", tokenizer, text_encoder, tokenizer_2, text_encoder_2, torch_device=device)
@@ -279,34 +310,32 @@ def drag(
             H, W = ori_image.shape[:2]
             add_time_ids = torch.tensor([[H, W, 0, 0, H, W]]).to(prompt_embeds).repeat(2, 1)
             added_cond_kwargs = {"text_embeds": pooled_prompt_embeds, "time_ids": add_time_ids} if sd_version == 'xl' else {}
-            added_cond_kwargs["image_embeds"] = image_embeds        
+            if image_embeds is not None:
+                added_cond_kwargs["image_embeds"] = image_embeds 
 
             mask_pt = torch.from_numpy(mask).unsqueeze(0).unsqueeze(0).to(device)
             mask_pt = F.interpolate(mask_pt, size=latent.shape[2:]).expand_as(latent)
 
-            if not encode_then_cp:
-                hook_latents, noises, cfg_scales = forward(scheduler, sampler, steps, start_t, preview_latent, prompt_embeds, added_cond_kwargs, progress=progress, sde=sde)            
-
-            keys = []; values = []
-            key_handlers, value_handlers = register(do='copy')
-            if encode_then_cp:
-                hook_latents, noises, cfg_scales = forward(scheduler, sampler, steps, start_t, latent, prompt_embeds, added_cond_kwargs, progress=progress, sde=sde)
-                start_latent = None
-            else:
-                start_latent = forward(scheduler, sampler, steps, start_t, latent, prompt_embeds, added_cond_kwargs, progress=progress, sde=sde)[0][-1]
-            unregister(*key_handlers, *value_handlers)
+            keys = []; values = []; features = []
+            key_handlers, value_handlers, feature_handlers = register(do='copy')
+            hook_latents, noises, cfg_scales = forward(scheduler, sampler, steps, start_t, latent, prompt_embeds, added_cond_kwargs, progress=progress, sde=True)
+            start_latent = None
+            unregister(*key_handlers, *value_handlers, *feature_handlers)
 
             keys = reverse_and_repeat_every_n_elements(keys, n=len(key_handlers))
             values = reverse_and_repeat_every_n_elements(values, n=len(value_handlers))
 
-            key_handlers, value_handlers = register(do='paste')
-            latent = backward(scheduler, sampler, steps, start_t, end_t, noise_scale, hook_latents, noises, cfg_scales, mask_pt, prompt_embeds, added_cond_kwargs, blur_pts, copy_pts, paste_pts, latent=start_latent, progress=progress, sde=sde)
-            unregister(*key_handlers, *value_handlers)
+            key_handlers, value_handlers, feature_handlers = register(do='paste')
+            if method == 'guidance':
+                latent = backward_guidance(scheduler, sampler, steps, start_t, end_t, hook_latents, features, noises, cfg_scales, mask_pt, prompt_embeds, added_cond_kwargs, copy_pts, paste_pts, latent=start_latent, progress=progress, sde=True)
+            else:
+                latent = backward(scheduler, sampler, steps, start_t, end_t, noise_scale, hook_latents, noises, cfg_scales, mask_pt, prompt_embeds, added_cond_kwargs, blur_pts, copy_pts, paste_pts, latent=start_latent, progress=progress, sde=True)
+            unregister(*key_handlers, *value_handlers, *feature_handlers)
 
             drag_data['out_latent'] = latent
             image = postprocess(vae, latent, ori_image, mask)
 
-    elif method == 'InstantDrag':
+    elif method == 'instantdrag':
         global instant_pipe
         if 'instant_pipe' not in globals():
             instant_pipe = InstantDragPipeline(seed, device, (torch.float16 if 'cuda' in device else torch.float32))
@@ -323,19 +352,8 @@ def drag(
         image = cv2.resize(image, (ori_W, ori_H))
 
     else:
-        raise ValueError('Select method from InstantDrag, Encode then CP, CP then Encode')
+        raise ValueError('Select method from regiondrag, instantdrag, guidance')
 
-    if save_path:
-        os.makedirs(save_path, exist_ok=True)
-        counter = 0
-        file_root, file_extension = os.path.splitext('dragged_image.png')
-        while True:
-            test_name = f"{file_root} ({counter}){file_extension}" if counter != 0 else 'dragged_image.png'
-            full_path = os.path.join(save_path, test_name)
-            if not os.path.exists(full_path):
-                Image.fromarray(image).save(full_path)
-                break
-            counter += 1
     if device == 'cuda':
         torch.cuda.empty_cache()
     return image

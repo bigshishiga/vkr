@@ -86,5 +86,4 @@ def main(data_dir, output_dir):
         )
 
 if __name__ == '__main__':
-    main(os.path.join(data_dir, "dragbench-sr"), output_dir)
-    main(os.path.join(data_dir, "dragbench-dr"), output_dir)
+    main(data_dir, output_dir)

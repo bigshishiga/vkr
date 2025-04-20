@@ -1,13 +1,27 @@
 import os
+import shutil
 import argparse
 import torch
 import numpy as np
 from tqdm import tqdm
 import gradio as gr
 from PIL import Image
-
+from datetime import datetime
 from region_utils.drag import drag, get_drag_data, get_meta_data, drag_copy_paste, drag_id
 from region_utils.evaluator import DragEvaluator
+
+import logging
+from pythonjsonlogger import jsonlogger
+
+def setup_logging():
+    logger = logging.getLogger()
+    logHandler = logging.FileHandler(f"logs/{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log")
+
+    formatter = jsonlogger.JsonFormatter()
+    logHandler.setFormatter(formatter)
+
+    logger.addHandler(logHandler)
+    logger.setLevel(logging.INFO)
 
 
 def get_args():
@@ -64,15 +78,41 @@ def get_args():
     )
 
     parser.add_argument(
+        '--guidance-weight',
+        type=float,
+        default=1.0,
+        help="If method is 'guidance', this is the weight of the energy function in denoising step"
+    )
+
+    parser.add_argument(
+        '--guidance-layer',
+        type=int,
+        default=2,
+        help="If method is 'guidance', this is the layer at which the guidance is applied"
+    )
+
+    parser.add_argument(
         '--disable-kv-copy',
         action='store_true',
         help="If passed, do not perform the key-value copy-paste operation in self-attention layers"
     )
 
     parser.add_argument(
+        '--ip-adapter',
+        action='store_true',
+        help="If passed, use IP-Adapter"
+    )
+
+    parser.add_argument(
         '--skip-evaluation',
         action='store_true',
         help="If passed, do not perform the evaluation (saves time if you only want the output images)"
+    )
+
+    parser.add_argument(
+        '--override',
+        action='store_true',
+        help="If passed, override saving directory"
     )
 
     parser.add_argument('--device', type=str, default='cuda')
@@ -86,7 +126,10 @@ def get_args():
     assert args.data_dir.startswith('drag_data/'), "Data should lie in 'drag_data/'"
     assert args.method in ['regiondrag', 'guidance', 'instantdrag', 'copy', 'id'], "Invalid method"
     if args.save_dir and os.path.exists(args.save_dir):
-        raise FileExistsError(f"Save directory {args.save_dir} already exists")
+        if args.override:
+            shutil.rmtree(args.save_dir)
+        else:
+            raise FileExistsError(f"Save directory {args.save_dir} already exists")
 
     # Log stuff
     print(f"Using args: {args}")
@@ -97,60 +140,67 @@ def get_args():
 
     return args
 
-args = get_args()
+def main():
+    setup_logging()
+    args = get_args()
 
-evaluator = DragEvaluator()
-all_distances = []; all_lpips = []; all_names = []
+    logger = logging.getLogger()
+    logger.info("params", extra=args.__dict__)
 
-data_dirs = [dirpath for dirpath, dirnames, _ in os.walk(args.data_dir) if not dirnames]
+    evaluator = DragEvaluator()
+    all_distances = []; all_lpips = []; all_names = []
 
-for data_path in tqdm(data_dirs):
-    # Region-based Inputs for Editing
-    drag_data = get_drag_data(data_path)
-    ori_image = drag_data['ori_image'].copy()
+    data_dirs = [dirpath for dirpath, dirnames, _ in os.walk(args.data_dir) if not dirnames]
 
-    if args.method in ('regiondrag', 'instantdrag', 'guidance'):
-        if args.method == 'regiondrag':
-            method = 'Encode then CP'
-        elif args.method == 'instantdrag':
-            method = 'InstantDrag'
-        elif args.method == 'guidance':
-            method = 'guidance'
+    for data_path in tqdm(data_dirs):
+        # Region-based Inputs for Editing
+        drag_data = get_drag_data(data_path)
+        ori_image = drag_data['ori_image'].copy()
 
-        out_image = drag(drag_data, args.steps, args.start_t, args.end_t, args.noise_scale, args.seed,
-                        progress=gr.Progress(), device=args.device, disable_kv_copy=args.disable_kv_copy,
-                        method='Encode then CP' if args.method == 'regiondrag' else 'InstantDrag')
-    elif args.method == 'copy':
-        out_image = drag_copy_paste(drag_data, device=args.device) 
-    elif args.method == 'id':
-        out_image = drag_id(drag_data, device=args.device)
+        logger.info("image", extra={"path": data_path})
 
-    if args.save_dir is not None:
-        save_name = os.path.join(args.save_dir, data_path.removeprefix(f'drag_data/{args.bench_name}/') + '.png')
-        os.makedirs(os.path.dirname(save_name), exist_ok=True)
-        Image.fromarray(out_image).save(save_name)
+        if args.method in ('regiondrag', 'instantdrag', 'guidance'):
+            out_image = drag(drag_data, args.steps, args.start_t, args.end_t, args.noise_scale, args.seed,
+                            progress=gr.Progress(), device=args.device,
+                            disable_kv_copy=args.disable_kv_copy,
+                            disable_ip_adapter=not args.ip_adapter,
+                            guidance_weight=args.guidance_weight, guidance_layer=args.guidance_layer,
+                            method=args.method
+                        )
+        elif args.method == 'copy':
+            out_image = drag_copy_paste(drag_data, device=args.device) 
+        elif args.method == 'id':
+            out_image = drag_id(drag_data, device=args.device)
+
+        if args.save_dir is not None:
+            save_name = os.path.join(args.save_dir, data_path.removeprefix(f'drag_data/{args.bench_name}/') + '.png')
+            os.makedirs(os.path.dirname(save_name), exist_ok=True)
+            Image.fromarray(out_image).save(save_name)
+
+        if not args.skip_evaluation:
+            # Point-based Inputs for Evaluation
+            meta_data_path = os.path.join(data_path, 'meta_data.pkl')
+            prompt, _, source, target = get_meta_data(meta_data_path)    
+
+            all_distances.append(evaluator.compute_distance(ori_image, out_image, source, target, method='sd', prompt=prompt))
+            all_lpips.append(evaluator.compute_lpips(ori_image, out_image))
+            all_names.append(data_path)
+
 
     if not args.skip_evaluation:
-        # Point-based Inputs for Evaluation
-        meta_data_path = os.path.join(data_path, 'meta_data.pkl')
-        prompt, _, source, target = get_meta_data(meta_data_path)    
+        mean_dist = torch.tensor(all_distances).mean().item() * 100
+        mean_lpips = torch.tensor(all_lpips).mean().item() * 100
+        print(f'MD: {mean_dist:.4f}\nLPIPS: {mean_lpips:.4f}\n')
 
-        all_distances.append(evaluator.compute_distance(ori_image, out_image, source, target, method='sd', prompt=prompt))
-        all_lpips.append(evaluator.compute_lpips(ori_image, out_image))
-        all_names.append(data_path)
+        if args.save_dir is not None:
+            md = np.array(all_distances)
+            lpips = np.array(all_lpips)
 
+            filepath = os.path.join(args.save_dir, 'metrics.npz')
+            np.savez(
+                filepath, md=md, lpips=lpips, names=all_names,
+                mean_md=np.array(mean_dist), mean_lpips=np.array(mean_lpips)
+            )
 
-if not args.skip_evaluation:
-    mean_dist = torch.tensor(all_distances).mean().item() * 100
-    mean_lpips = torch.tensor(all_lpips).mean().item() * 100
-    print(f'MD: {mean_dist:.4f}\nLPIPS: {mean_lpips:.4f}\n')
-
-    if args.save_dir is not None:
-        md = np.array(all_distances)
-        lpips = np.array(all_lpips)
-
-        filepath = os.path.join(args.save_dir, 'metrics.npz')
-        np.savez(
-            filepath, md=md, lpips=lpips, names=all_names,
-            mean_md=np.array(mean_dist), mean_lpips=np.array(mean_lpips)
-        )
+if __name__ == '__main__':
+    main()

@@ -7,8 +7,12 @@ import numpy as np
 from PIL import Image
 from torchvision import transforms
 from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline, DPMSolverMultistepScheduler
+import logging
 
-def load_model(version="v1-5", torch_device='cuda', torch_dtype=torch.float16, verbose=True):
+logger = logging.getLogger(__name__)
+
+
+def load_model(version="v1-5", torch_device='cuda', torch_dtype=torch.float16, ip_adapter=True, verbose=True):
     pipe_paths = {
         'v1-5' : "runwayml/stable-diffusion-v1-5", 
         'v2-1' : "stabilityai/stable-diffusion-2-1",
@@ -22,13 +26,15 @@ def load_model(version="v1-5", torch_device='cuda', torch_dtype=torch.float16, v
     pipe = pipe.from_pretrained(pipe_path, torch_dtype=torch_dtype).to(torch_device)
     pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
 
-    # IP-Adaptor
-    if version in ['v1-5', 'v2-1']:
-        subfolder, weight_name, ip_adapter_scale = "models", "ip-adapter-plus_sd15.bin", 0.5
-    else: 
-        subfolder, weight_name, ip_adapter_scale = "sdxl_models", "ip-adapter_sdxl.bin", 0.6
-    pipe.load_ip_adapter("h94/IP-Adapter", subfolder=subfolder, weight_name=weight_name)
-    pipe.set_ip_adapter_scale(ip_adapter_scale)
+    # IP-Adapter
+    if ip_adapter:
+        print("Loading IP-Adapter")
+        if version in ['v1-5', 'v2-1']:
+            subfolder, weight_name, ip_adapter_scale = "models", "ip-adapter-plus_sd15.bin", 0.5
+        else: 
+            subfolder, weight_name, ip_adapter_scale = "sdxl_models", "ip-adapter_sdxl.bin", 0.6
+        pipe.load_ip_adapter("h94/IP-Adapter", subfolder=subfolder, weight_name=weight_name)
+        pipe.set_ip_adapter_scale(ip_adapter_scale)
 
     tokenizer_2 = pipe.tokenizer_2 if version == 'xl' else None
     text_encoder_2 = pipe.text_encoder_2 if version == 'xl' else None
@@ -85,7 +91,7 @@ class Sampler():
 
         self.unet = unet
 
-    def get_eps(self, img, timestep, guidance_scale, text_embeddings, lora_scale=None, added_cond_kwargs=None):
+    def get_eps(self, img, timestep, guidance_scale, text_embeddings, lora_scale=None, added_cond_kwargs=None, **kwargs):
         guidance_scale = max(1, guidance_scale)
         
         text_embeddings = text_embeddings if guidance_scale > 1. else text_embeddings[-1:]
@@ -95,7 +101,13 @@ class Sampler():
         if guidance_scale == 1. and added_cond_kwargs is not None:
             added_cond_kwargs = {k: v[-1:] for k, v in added_cond_kwargs.items()} 
 
-        noise_pred = self.unet(latent_model_input, timestep, encoder_hidden_states=text_embeddings, cross_attention_kwargs=cross_attention_kwargs, added_cond_kwargs=added_cond_kwargs).sample
+        noise_pred = self.unet(
+            latent_model_input,
+            timestep,
+            encoder_hidden_states=text_embeddings,
+            cross_attention_kwargs=cross_attention_kwargs,
+            added_cond_kwargs=added_cond_kwargs
+        ).sample
 
         if guidance_scale > 1.:
             noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
@@ -108,8 +120,20 @@ class Sampler():
 
         return noise_pred
 
-    def sample(self, timestep, sample, guidance_scale, text_embeddings, sde=False, noise=None, eta=1., lora_scale=None, added_cond_kwargs=None):
-        eps = self.get_eps(sample, timestep, guidance_scale, text_embeddings, lora_scale, added_cond_kwargs)
+    def sample(
+        self,
+        timestep,
+        sample,
+        guidance_scale,
+        text_embeddings,
+        sde=False,
+        noise=None,
+        eta=1.,
+        lora_scale=None,
+        added_cond_kwargs=None,
+        **kwargs,
+    ):
+        eps = self.get_eps(sample, timestep, guidance_scale, text_embeddings, lora_scale, added_cond_kwargs, **kwargs)
 
         prev_timestep = timestep - self.num_train_timesteps // self.num_inference_steps
 
@@ -164,3 +188,55 @@ class Sampler():
         
         noise = None
         return img, noise
+
+
+class GuidanceSampler(Sampler):
+    def __init__(self, *args, guidance_weight=None, guidance_layer=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.guidance_weight = guidance_weight
+        self.guidance_layer = guidance_layer
+
+    def get_eps(self, img, timestep, guidance_scale, text_embeddings, lora_scale=None, added_cond_kwargs=None, **kwargs):
+        inversion_feature_map = kwargs.get("inversion_feature_map", None)
+        if inversion_feature_map is None:
+            return super().get_eps(img, timestep, guidance_scale, text_embeddings, lora_scale, added_cond_kwargs)
+        source = kwargs["source"]
+        target = kwargs["target"]
+
+        feature_map = None
+        def forward_hook(module, input, output):
+            nonlocal feature_map
+            feature_map = output
+        handler = self.unet.up_blocks[self.guidance_layer].register_forward_hook(forward_hook)
+
+        with torch.enable_grad():
+            img.requires_grad = True
+            denoise_eps = super().get_eps(img, timestep, guidance_scale, text_embeddings, lora_scale, added_cond_kwargs, **kwargs)
+            denoise_eps = denoise_eps.detach().requires_grad_(False)
+            handler.remove()
+
+            sim = (
+                torch.nn.functional.cosine_similarity(
+                    feature_map[0, :, source[:, 1], source[:, 0]],
+                    inversion_feature_map[0, :, target[:, 1], target[:, 0]],
+                    dim=1
+                )
+                + 1.0
+            ) / 2.0
+            sim = sim.mean()
+            energy = 1 / (1 + 4 * sim)
+            energy.backward()
+
+            guidance_eps = img.grad
+            img.grad = None
+            img.requires_grad = False
+        
+        logger.info("step", extra={
+            "sim": sim.item(),
+            "energy": energy.item(),
+            "guidance_norm": guidance_eps.norm().item() * self.guidance_weight,
+            "denoise_norm": denoise_eps.norm().item(),
+            "timestep": timestep.item(),
+        })
+
+        return denoise_eps + self.guidance_weight * guidance_eps
