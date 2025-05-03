@@ -137,43 +137,48 @@ def forward(scheduler, sampler, steps, start_t, latent, text_embeddings, added_c
 
     return hook_latents, noises, cfg_scales
 
-def backward(scheduler, sampler, steps, start_t, end_t, noise_scale, hook_latents, noises, cfg_scales, mask, text_embeddings, added_cond_kwargs, blur, source, target, progress=tqdm, latent=None, sde=True):
-    start_t = int(start_t * steps)
-    end_t = int(end_t * steps)
-    step_len = 1000 // steps
-
-    latent = hook_latents[-1].clone() if latent is None else latent
-    latent = blur_source(latent, noise_scale, blur)
-
-    for t in progress(scheduler.timesteps[(steps-start_t- 1):-1]):
-        hook_latent = hook_latents.pop()
-        do_copy = round((t / step_len).item()) > end_t + 1
-        latent = copy_and_paste(hook_latent, latent, source, target) if do_copy else latent
-        latent = torch.where(mask == 1, latent, hook_latent)
-        latent = sampler.sample(t, latent, cfg_scales.pop(), text_embeddings, sde=sde, noise=noises.pop(), added_cond_kwargs=added_cond_kwargs)
+def backward_step(sampler, t, latent, inv_latent, text_embeddings, cfg_scale, noise, source, target, mask, do_edit, sde, added_cond_kwargs):
+    latent = copy_and_paste(inv_latent, latent, source, target) if do_edit else latent
+    latent = torch.where(mask == 1, latent, inv_latent)
+    latent = sampler.sample(t, latent, cfg_scale, text_embeddings, sde=sde, noise=noise, added_cond_kwargs=added_cond_kwargs)
+    
     return latent
 
-def backward_guidance(scheduler, sampler, steps, start_t, end_t, inv_latents, inv_features, noises, cfg_scales, mask, text_embeddings, added_cond_kwargs, source, target, progress=tqdm, latent=None, sde=True):
-    assert isinstance(sampler, GuidanceSampler)
+def backward_guidance_step(sampler, t, latent, inv_latent, inv_feature_maps, text_embeddings, cfg_scale, noise, source, target, mask, do_edit, sde, added_cond_kwargs):
+    if do_edit:
+        latent = sampler.sample(t, latent, cfg_scale, text_embeddings, sde=sde, noise=noise, added_cond_kwargs=added_cond_kwargs, inv_feature_maps=inv_feature_maps, source=source, target=target)
+    else:
+        latent = sampler.sample(t, latent, cfg_scale, text_embeddings, sde=sde, noise=noise, added_cond_kwargs=added_cond_kwargs)
+    latent = torch.where(mask == 1, latent, inv_latent)
 
+    return latent
+
+def backward(scheduler, sampler, steps, start_t, end_t, noise_scale, inv_latents, inv_features, noises, cfg_scales, mask, text_embeddings, added_cond_kwargs, blur, source, target, progress=tqdm, latent=None, sde=True, mode=None):
     start_t = int(start_t * steps)
     end_t = int(end_t * steps)
     step_len = 1000 // steps
 
     latent = inv_latents[-1].clone() if latent is None else latent
+    latent = blur_source(latent, noise_scale, blur)
 
+    latents = []
     for t in progress(scheduler.timesteps[(steps-start_t- 1):-1]):
+        do_edit = round((t / step_len).item()) > end_t + 1
         inv_latent = inv_latents.pop()
-        do_guide = round((t / step_len).item()) > end_t + 1
-        if do_guide:
-            latent = sampler.sample(
-                t, latent, cfg_scales.pop(), text_embeddings, sde=sde, noise=noises.pop(), added_cond_kwargs=added_cond_kwargs,
-                inversion_feature_map=inv_features.pop(), source=source, target=target
-            )
+        cfg_scale = cfg_scales.pop()
+        noise = noises.pop()
+
+        if mode == 'regiondrag':
+            latent = backward_step(sampler, t, latent, inv_latent, text_embeddings, cfg_scale, noise, source, target, mask, do_edit, sde, added_cond_kwargs)
+        elif mode == 'guidance':
+            inv_feature_maps = [inv_features.pop() for _ in range(len(sampler.guidance_layers))]
+            latent = backward_guidance_step(sampler, t, latent, inv_latent, inv_feature_maps, text_embeddings, cfg_scale, noise, source, target, mask, do_edit, sde, added_cond_kwargs)
         else:
-            latent = sampler.sample(t, latent, cfg_scales.pop(), text_embeddings, sde=sde, noise=noises.pop(), added_cond_kwargs=added_cond_kwargs)
-        latent = torch.where(mask == 1, latent, inv_latent)
-    return latent
+            raise ValueError("Invalid mode")
+        latents.append(latent.clone())
+
+    return latent, latents
+
 
 @torch.no_grad()
 def drag_copy_paste(drag_data, device=None):
@@ -219,14 +224,19 @@ def drag(
         noise_scale,
         seed,
         progress=tqdm,
+        sde=True,
         method=None,
         device=None,
         disable_kv_copy=False,
         disable_ip_adapter=False,
-        guidance_layer: int = 2,
+        guidance_layers: list[int] = [1, 2],
         guidance_weight: float = 1.0,
     ):
-    assert guidance_layer in (0, 1, 2, 3)
+    assert (
+        all(guidance_layer in (0, 1, 2, 3) for guidance_layer in guidance_layers) and
+        sorted(guidance_layers) == guidance_layers
+    ), f"Invalid guidance layers: {guidance_layers}"
+
     set_seed(seed)
     ori_image = drag_data['ori_image']
     prompt = drag_data['prompt']
@@ -268,8 +278,9 @@ def drag(
                             value_handlers.append(tb.attn1.to_v.register_forward_hook(value_hook))
             
             if do_guide and do_copy:
-                block = sampler.unet.up_blocks[guidance_layer]
-                feature_handlers.append(block.register_forward_hook(save_features_hook))
+                for layer in guidance_layers:
+                    block = sampler.unet.up_blocks[layer]
+                    feature_handlers.append(block.register_forward_hook(save_features_hook))
 
             return key_handlers, value_handlers, feature_handlers
 
@@ -293,7 +304,7 @@ def drag(
         
         if method == 'guidance':
             sampler = GuidanceSampler(unet=unet, scheduler=scheduler, num_steps=steps,
-                                      guidance_weight=guidance_weight, guidance_layer=guidance_layer)
+                                      guidance_weight=guidance_weight, guidance_layers=guidance_layers)
         else:
             sampler = Sampler(unet=unet, scheduler=scheduler, num_steps=steps)
 
@@ -318,22 +329,24 @@ def drag(
 
             keys = []; values = []; features = []
             key_handlers, value_handlers, feature_handlers = register(do='copy')
-            hook_latents, noises, cfg_scales = forward(scheduler, sampler, steps, start_t, latent, prompt_embeds, added_cond_kwargs, progress=progress, sde=True)
+            hook_latents, noises, cfg_scales = forward(scheduler, sampler, steps, start_t, latent, prompt_embeds, added_cond_kwargs, progress=progress, sde=sde)
             start_latent = None
             unregister(*key_handlers, *value_handlers, *feature_handlers)
+            forward_process = [postprocess(vae, latent, ori_image, mask) for latent in hook_latents]
 
             keys = reverse_and_repeat_every_n_elements(keys, n=len(key_handlers))
             values = reverse_and_repeat_every_n_elements(values, n=len(value_handlers))
+            features = reverse_and_repeat_every_n_elements(features, n=len(feature_handlers))
 
             key_handlers, value_handlers, feature_handlers = register(do='paste')
-            if method == 'guidance':
-                latent = backward_guidance(scheduler, sampler, steps, start_t, end_t, hook_latents, features, noises, cfg_scales, mask_pt, prompt_embeds, added_cond_kwargs, copy_pts, paste_pts, latent=start_latent, progress=progress, sde=True)
-            else:
-                latent = backward(scheduler, sampler, steps, start_t, end_t, noise_scale, hook_latents, noises, cfg_scales, mask_pt, prompt_embeds, added_cond_kwargs, blur_pts, copy_pts, paste_pts, latent=start_latent, progress=progress, sde=True)
+            latent, latents = backward(scheduler, sampler, steps, start_t, end_t, noise_scale, hook_latents, features, noises, cfg_scales, mask_pt, prompt_embeds, added_cond_kwargs, blur_pts, copy_pts, paste_pts, latent=start_latent, progress=progress, sde=sde, mode=method)
             unregister(*key_handlers, *value_handlers, *feature_handlers)
 
             drag_data['out_latent'] = latent
+            drag_data['latents'] = latents
             image = postprocess(vae, latent, ori_image, mask)
+            backward_process = [forward_process[-1]] + [postprocess(vae, latent, ori_image, mask) for latent in latents]
+            backward_process.reverse()
 
     elif method == 'instantdrag':
         global instant_pipe
@@ -350,10 +363,12 @@ def drag(
         image = instant_pipe.run(cv2.resize(ori_image, (new_W, new_H)), selected_points.tolist(), flowgen_ckpt, flowdiffusion_ckpt, image_guidance,
                          flow_guidance, flowgen_output_scale, steps, save_results=False)
         image = cv2.resize(image, (ori_W, ori_H))
+        forward_process = None
+        backward_process = None
 
     else:
         raise ValueError('Select method from regiondrag, instantdrag, guidance')
 
     if device == 'cuda':
         torch.cuda.empty_cache()
-    return image
+    return image, forward_process, backward_process

@@ -2,6 +2,7 @@ import os
 import shutil
 import argparse
 import torch
+from diffusers.utils import make_image_grid
 import numpy as np
 from tqdm import tqdm
 import gradio as gr
@@ -22,6 +23,13 @@ def setup_logging():
 
     logger.addHandler(logHandler)
     logger.setLevel(logging.INFO)
+
+
+def parse_list(arg):
+    """Parse a comma-separated string into a list of integers."""
+    if arg:
+        return [int(item) for item in arg.split(',')]
+    return []
 
 
 def get_args():
@@ -50,6 +58,13 @@ def get_args():
     )
 
     parser.add_argument(
+        '--sampler',
+        choices=["ddim", "ddpm"],
+        default="ddim",
+        help="Sampler to use for the drag operation. Options: 'ddim', 'ddpm'"
+    )
+
+    parser.add_argument(
         '--start-t',
         type=float,
         default=0.5,
@@ -74,7 +89,7 @@ def get_args():
         '--noise-scale',
         type=float,
         default=1.0,
-        help="If method is 'regiondrag', this is the weight of the noise applied in the inpainting region"
+        help="Weight of the noise applied in the inpainting region"
     )
 
     parser.add_argument(
@@ -85,10 +100,10 @@ def get_args():
     )
 
     parser.add_argument(
-        '--guidance-layer',
-        type=int,
-        default=2,
-        help="If method is 'guidance', this is the layer at which the guidance is applied"
+        '--guidance-layers',
+        type=parse_list,
+        default="1,2",
+        help="If method is 'guidance', this is the comma-separated list of layers at which the guidance is applied (e.g., '1,2')"
     )
 
     parser.add_argument(
@@ -160,22 +175,35 @@ def main():
         logger.info("image", extra={"path": data_path})
 
         if args.method in ('regiondrag', 'instantdrag', 'guidance'):
-            out_image = drag(drag_data, args.steps, args.start_t, args.end_t, args.noise_scale, args.seed,
+            out_image, forward_process, backward_process = drag(drag_data, args.steps, args.start_t, args.end_t, args.noise_scale, args.seed,
                             progress=gr.Progress(), device=args.device,
                             disable_kv_copy=args.disable_kv_copy,
                             disable_ip_adapter=not args.ip_adapter,
-                            guidance_weight=args.guidance_weight, guidance_layer=args.guidance_layer,
-                            method=args.method
+                            guidance_weight=args.guidance_weight, guidance_layers=args.guidance_layers,
+                            method=args.method, sde=(args.sampler == "ddpm")
                         )
         elif args.method == 'copy':
-            out_image = drag_copy_paste(drag_data, device=args.device) 
+            out_image, forward_process, backward_process = drag_copy_paste(drag_data, device=args.device), None, None
         elif args.method == 'id':
-            out_image = drag_id(drag_data, device=args.device)
+            out_image, forward_process, backward_process = drag_id(drag_data, device=args.device), None, None
 
         if args.save_dir is not None:
-            save_name = os.path.join(args.save_dir, data_path.removeprefix(f'drag_data/{args.bench_name}/') + '.png')
+            file_name = data_path.removeprefix(f'drag_data/{args.bench_name}/') + '.png'
+
+            save_name = os.path.join(args.save_dir, file_name)
             os.makedirs(os.path.dirname(save_name), exist_ok=True)
             Image.fromarray(out_image).save(save_name)
+
+            if forward_process:
+                save_name = os.path.join(args.save_dir, "process", file_name)
+                os.makedirs(os.path.dirname(save_name), exist_ok=True)
+
+                print(len(forward_process), len(backward_process))
+                grid = make_image_grid(
+                    [Image.fromarray(image) for image in forward_process] + [Image.fromarray(image) for image in backward_process],
+                    2, len(forward_process)
+                )
+                grid.save(save_name)
 
         if not args.skip_evaluation:
             # Point-based Inputs for Evaluation

@@ -135,6 +135,8 @@ class Sampler():
     ):
         eps = self.get_eps(sample, timestep, guidance_scale, text_embeddings, lora_scale, added_cond_kwargs, **kwargs)
 
+        logger.info("step")
+
         prev_timestep = timestep - self.num_train_timesteps // self.num_inference_steps
 
         alpha_prod_t = self.alphas_cumprod[timestep]
@@ -191,52 +193,72 @@ class Sampler():
 
 
 class GuidanceSampler(Sampler):
-    def __init__(self, *args, guidance_weight=None, guidance_layer=None, **kwargs):
+    def __init__(self, *args, guidance_weight=None, guidance_layers=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.guidance_weight = guidance_weight
-        self.guidance_layer = guidance_layer
+        self.guidance_layers = guidance_layers
 
     def get_eps(self, img, timestep, guidance_scale, text_embeddings, lora_scale=None, added_cond_kwargs=None, **kwargs):
-        inversion_feature_map = kwargs.get("inversion_feature_map", None)
-        if inversion_feature_map is None:
+        inv_feature_maps = kwargs.get("inv_feature_maps", None)
+        # When guidance is terminated
+        if inv_feature_maps is None:
             return super().get_eps(img, timestep, guidance_scale, text_embeddings, lora_scale, added_cond_kwargs)
+
         source = kwargs["source"]
         target = kwargs["target"]
 
-        feature_map = None
+        feature_maps = []
         def forward_hook(module, input, output):
-            nonlocal feature_map
-            feature_map = output
-        handler = self.unet.up_blocks[self.guidance_layer].register_forward_hook(forward_hook)
+            nonlocal feature_maps
+            feature_maps.append(output)
+
+        handlers = []
+        for layer in self.guidance_layers:
+            handler = self.unet.up_blocks[layer].register_forward_hook(forward_hook)
+            handlers.append(handler)
 
         with torch.enable_grad():
             img.requires_grad = True
             denoise_eps = super().get_eps(img, timestep, guidance_scale, text_embeddings, lora_scale, added_cond_kwargs, **kwargs)
             denoise_eps = denoise_eps.detach().requires_grad_(False)
-            handler.remove()
+            for handler in handlers:
+                handler.remove()
 
-            sim = (
-                torch.nn.functional.cosine_similarity(
-                    feature_map[0, :, source[:, 1], source[:, 0]],
-                    inversion_feature_map[0, :, target[:, 1], target[:, 0]],
-                    dim=1
-                )
-                + 1.0
-            ) / 2.0
-            sim = sim.mean()
-            energy = 1 / (1 + 4 * sim)
+            total_sim = 0
+            stats = {}
+            for layer, feature_map, inv_feature_map in zip(self.guidance_layers, feature_maps, inv_feature_maps):
+                assert feature_map.shape == inv_feature_map.shape, (feature_map.shape, inv_feature_map.shape)
+                if feature_map.shape[-1] != 64:
+                    feature_map = torch.nn.functional.interpolate(feature_map, size=(64, 64), mode="bilinear", align_corners=False)
+                    inv_feature_map = torch.nn.functional.interpolate(inv_feature_map, size=(64, 64), mode="bilinear", align_corners=False)
+
+                sim = (
+                    torch.nn.functional.cosine_similarity(
+                        feature_map[0, :, source[:, 1], source[:, 0]],
+                        inv_feature_map[0, :, target[:, 1], target[:, 0]],
+                        dim=1
+                    )
+                    + 1.0
+                ) / 2.0
+                sim = sim.mean()
+                total_sim = total_sim + sim
+
+                stats[f"sim_{layer}"] = sim.item()
+            total_sim = total_sim / len(self.guidance_layers)
+            stats["total_sim"] = total_sim.item()
+
+            energy = 1 / (1 + 4 * total_sim)
             energy.backward()
 
             guidance_eps = img.grad
             img.grad = None
             img.requires_grad = False
         
-        logger.info("step", extra={
-            "sim": sim.item(),
-            "energy": energy.item(),
-            "guidance_norm": guidance_eps.norm().item() * self.guidance_weight,
-            "denoise_norm": denoise_eps.norm().item(),
-            "timestep": timestep.item(),
-        })
+        stats["energy"] = energy.item()
+        stats["guidance_norm"] = guidance_eps.norm().item() * self.guidance_weight
+        stats["denoise_norm"] = denoise_eps.norm().item()
+        stats["timestep"] = timestep.item()
+
+        logger.info("step", extra=stats)
 
         return denoise_eps + self.guidance_weight * guidance_eps
