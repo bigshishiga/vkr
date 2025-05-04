@@ -135,8 +135,6 @@ class Sampler():
     ):
         eps = self.get_eps(sample, timestep, guidance_scale, text_embeddings, lora_scale, added_cond_kwargs, **kwargs)
 
-        logger.info("step")
-
         prev_timestep = timestep - self.num_train_timesteps // self.num_inference_steps
 
         alpha_prod_t = self.alphas_cumprod[timestep]
@@ -193,10 +191,11 @@ class Sampler():
 
 
 class GuidanceSampler(Sampler):
-    def __init__(self, *args, guidance_weight=None, guidance_layers=None, **kwargs):
+    def __init__(self, *args, guidance_weight=None, guidance_layers=None, energy_function=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.guidance_weight = guidance_weight
         self.guidance_layers = guidance_layers
+        self.energy_function = energy_function
 
     def get_eps(self, img, timestep, guidance_scale, text_embeddings, lora_scale=None, added_cond_kwargs=None, **kwargs):
         inv_feature_maps = kwargs.get("inv_feature_maps", None)
@@ -247,7 +246,7 @@ class GuidanceSampler(Sampler):
             total_sim = total_sim / len(self.guidance_layers)
             stats["total_sim"] = total_sim.item()
 
-            energy = 1 / (1 + 4 * total_sim)
+            energy = self.energy_function(total_sim)
             energy.backward()
 
             guidance_eps = img.grad

@@ -1,163 +1,26 @@
 import os
-import shutil
-import argparse
 import torch
 from diffusers.utils import make_image_grid
 import numpy as np
 from tqdm import tqdm
 import gradio as gr
 from PIL import Image
-from datetime import datetime
+import logging
+
 from region_utils.drag import drag, get_drag_data, get_meta_data, drag_copy_paste, drag_id
 from region_utils.evaluator import DragEvaluator
+from region_utils.energy import get_energy_function
+from eval_utils import setup_logging, get_args, has_uncommitted_changes
 
-import logging
-from pythonjsonlogger import jsonlogger
-
-def setup_logging():
-    logger = logging.getLogger()
-    logHandler = logging.FileHandler(f"logs/{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log")
-
-    formatter = jsonlogger.JsonFormatter()
-    logHandler.setFormatter(formatter)
-
-    logger.addHandler(logHandler)
-    logger.setLevel(logging.INFO)
-
-
-def parse_list(arg):
-    """Parse a comma-separated string into a list of integers."""
-    if arg:
-        return [int(item) for item in arg.split(',')]
-    return []
-
-
-def get_args():
-    parser = argparse.ArgumentParser(description='Run the drag operation.')
-
-    parser.add_argument(
-        '--data-dir',
-        type=str,
-        required=True,
-        help="Path to the evaluation data directory. Should start with 'drag_data/'"
-    )
-
-    parser.add_argument(
-        '--save-dir',
-        type=str,
-        default=None,
-        help="Path to the save directory (i.e. name of the run). If not provided, results will not be saved."
-    )
-
-    parser.add_argument(
-        '--method',
-        type=str,
-        default='regiondrag',
-        choices=['regiondrag', 'guidance', 'instantdrag', 'copy', 'id'],
-        help="Method to use for the drag operation. Options: 'regiondrag', 'guidance', 'instantdrag', 'copy', 'id'"
-    )
-
-    parser.add_argument(
-        '--sampler',
-        choices=["ddim", "ddpm"],
-        default="ddim",
-        help="Sampler to use for the drag operation. Options: 'ddim', 'ddpm'"
-    )
-
-    parser.add_argument(
-        '--start-t',
-        type=float,
-        default=0.5,
-        help="Timestep to which the inversion is applied (e.g. 0.5 for 50% of the way through the diffusion process)"
-    )
-
-    parser.add_argument(
-        '--end-t',
-        type=float,
-        default=0.2,
-        help="Timestep at which the editing is terminated (e.g. 0.2 for 20% of the way through the diffusion process)"
-    )
-
-    parser.add_argument(
-        '--steps',
-        type=int,
-        default=20,
-        help="DDIM inversion steps"
-    )
-
-    parser.add_argument(
-        '--noise-scale',
-        type=float,
-        default=1.0,
-        help="Weight of the noise applied in the inpainting region"
-    )
-
-    parser.add_argument(
-        '--guidance-weight',
-        type=float,
-        default=1.0,
-        help="If method is 'guidance', this is the weight of the energy function in denoising step"
-    )
-
-    parser.add_argument(
-        '--guidance-layers',
-        type=parse_list,
-        default="1,2",
-        help="If method is 'guidance', this is the comma-separated list of layers at which the guidance is applied (e.g., '1,2')"
-    )
-
-    parser.add_argument(
-        '--disable-kv-copy',
-        action='store_true',
-        help="If passed, do not perform the key-value copy-paste operation in self-attention layers"
-    )
-
-    parser.add_argument(
-        '--ip-adapter',
-        action='store_true',
-        help="If passed, use IP-Adapter"
-    )
-
-    parser.add_argument(
-        '--skip-evaluation',
-        action='store_true',
-        help="If passed, do not perform the evaluation (saves time if you only want the output images)"
-    )
-
-    parser.add_argument(
-        '--override',
-        action='store_true',
-        help="If passed, override saving directory"
-    )
-
-    parser.add_argument('--device', type=str, default='cuda')
-    parser.add_argument('--seed', type=int, default=42)
-
-    args = parser.parse_args()
-    args.bench_name = args.data_dir.removeprefix('drag_data/').removesuffix('/') if args.data_dir != 'drag_data' else ""
-    args.save_dir = os.path.join('saved', args.save_dir, args.bench_name) if args.save_dir else None
-
-    # Validate arguments
-    assert args.data_dir.startswith('drag_data/'), "Data should lie in 'drag_data/'"
-    assert args.method in ['regiondrag', 'guidance', 'instantdrag', 'copy', 'id'], "Invalid method"
-    if args.save_dir and os.path.exists(args.save_dir):
-        if args.override:
-            shutil.rmtree(args.save_dir)
-        else:
-            raise FileExistsError(f"Save directory {args.save_dir} already exists")
-
-    # Log stuff
-    print(f"Using args: {args}")
-    print()
-    print('Current commit:')
-    os.system("git log -1")
-    print("*" * 100)
-
-    return args
 
 def main():
-    setup_logging()
-    args = get_args()
+    if has_uncommitted_changes():
+        raise ValueError("Commit your changes before running the evaluation.")
+
+    args, energy_args = get_args()
+    setup_logging(os.path.join(args.save_dir, "log.log"))
+
+    energy_function = get_energy_function(args.energy_function, **energy_args)
 
     logger = logging.getLogger()
     logger.info("params", extra=args.__dict__)
@@ -198,7 +61,6 @@ def main():
                 save_name = os.path.join(args.save_dir, "process", file_name)
                 os.makedirs(os.path.dirname(save_name), exist_ok=True)
 
-                print(len(forward_process), len(backward_process))
                 grid = make_image_grid(
                     [Image.fromarray(image) for image in forward_process] + [Image.fromarray(image) for image in backward_process],
                     2, len(forward_process)
