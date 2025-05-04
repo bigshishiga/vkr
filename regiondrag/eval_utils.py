@@ -170,7 +170,9 @@ def get_args():
     args.commit_hash = get_git_commit_hash()
 
     energy_args= {
-        k.removeprefix("--energy-"): v for k, v in unknown if k.startswith("--energy-")
+        k.removeprefix("--energy-"): v
+        for k, v in unknown.__dict__.items()
+        if k.startswith("--energy-")
     }
 
     # Validate arguments
