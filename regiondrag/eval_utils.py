@@ -48,29 +48,33 @@ def setup_logging(filename):
     logger.addHandler(logHandler)
     logger.setLevel(logging.INFO)
 
-import getopt
-
-def parse_all_args(args):
-    # Get all arguments as a dictionary
+def parse_all_args(argv=None):
     args = {}
+    i = 0
+
+    while i < len(argv):
+        if argv[i].startswith('--'):
+            key = argv[i][2:]
+            if i + 1 < len(argv) and not argv[i+1].startswith('--'):
+                args[key] = argv[i+1]
+                i += 2
+            else:
+                args[key] = True
+                i += 1
+        elif argv[i].startswith('-'):
+            key = argv[i][1:]
+            if i + 1 < len(argv) and not argv[i+1].startswith('-'):
+                args[key] = argv[i+1]
+                i += 2
+            else:
+                args[key] = True
+                i += 1
+        else:
+            if 'positional' not in args:
+                args['positional'] = []
+            args['positional'].append(argv[i])
+            i += 1
     
-    # Parse options
-    try:
-        opts, positional = getopt.getopt(args, "", [])
-    except getopt.GetoptError:
-        return {}
-    
-    # Store all options
-    for opt, arg in opts:
-        if opt.startswith('--'):
-            args[opt[2:]] = arg if arg else True
-        elif opt.startswith('-'):
-            args[opt[1:]] = arg if arg else True
-    
-    # Store positional arguments
-    if positional:
-        args['positional'] = positional
-        
     return args
 
 def parse_list(arg):
@@ -196,9 +200,9 @@ def get_args():
     args.commit_hash = get_git_commit_hash()
 
     energy_args= {
-        k.removeprefix("--energy-"): v
+        k.removeprefix("energy-"): v
         for k, v in unknown.items()
-        if k.startswith("--energy-")
+        if k.startswith("energy-")
     }
 
     # Validate arguments

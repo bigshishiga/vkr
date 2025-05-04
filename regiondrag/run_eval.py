@@ -14,7 +14,7 @@ from eval_utils import setup_logging, get_args, has_uncommitted_changes
 
 
 def main():
-    if has_uncommitted_changes():
+    if has_uncommitted_changes() and not os.environ.get("DEBUG"):
         raise ValueError("Commit your changes before running the evaluation.")
 
     args, energy_args = get_args()
@@ -43,7 +43,8 @@ def main():
                             disable_kv_copy=args.disable_kv_copy,
                             disable_ip_adapter=not args.ip_adapter,
                             guidance_weight=args.guidance_weight, guidance_layers=args.guidance_layers,
-                            method=args.method, sde=(args.sampler == "ddpm")
+                            method=args.method, sde=(args.sampler == "ddpm"),
+                            energy_function=energy_function
                         )
         elif args.method == 'copy':
             out_image, forward_process, backward_process = drag_copy_paste(drag_data, device=args.device), None, None

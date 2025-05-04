@@ -1,6 +1,6 @@
 def get_dragon_energy_function(alpha, beta):
     def energy_function(x):
-        return 1 / (alpha + beta * x)
+        return 1 / (float(alpha) + float(beta) * x)
     return energy_function
 
 
