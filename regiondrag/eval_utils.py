@@ -197,7 +197,7 @@ def get_args():
 
     energy_args= {
         k.removeprefix("--energy-"): v
-        for k, v in unknown.__dict__.items()
+        for k, v in unknown.items()
         if k.startswith("--energy-")
     }
 
