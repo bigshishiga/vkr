@@ -48,6 +48,31 @@ def setup_logging(filename):
     logger.addHandler(logHandler)
     logger.setLevel(logging.INFO)
 
+import getopt
+
+def parse_all_args(args):
+    # Get all arguments as a dictionary
+    args = {}
+    
+    # Parse options
+    try:
+        opts, positional = getopt.getopt(args, "", [])
+    except getopt.GetoptError:
+        return {}
+    
+    # Store all options
+    for opt, arg in opts:
+        if opt.startswith('--'):
+            args[opt[2:]] = arg if arg else True
+        elif opt.startswith('-'):
+            args[opt[1:]] = arg if arg else True
+    
+    # Store positional arguments
+    if positional:
+        args['positional'] = positional
+        
+    return args
+
 def parse_list(arg):
     """Parse a comma-separated string into a list of integers."""
     if arg:
@@ -164,6 +189,7 @@ def get_args():
     parser.add_argument('--seed', type=int, default=42)
 
     args, unknown = parser.parse_known_args()
+    unknown = parse_all_args(unknown)
 
     args.bench_name = args.data_dir.removeprefix('drag_data/').removesuffix('/') if args.data_dir != 'drag_data' else ""
     args.save_dir = os.path.join('saved', args.save_dir, args.bench_name) if args.save_dir else None
