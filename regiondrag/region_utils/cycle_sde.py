@@ -191,12 +191,22 @@ class Sampler():
 
 
 class GuidanceSampler(Sampler):
-    def __init__(self, *args, guidance_weight=None, guidance_layers=None, energy_function=None, similarity_function=None, **kwargs):
+    def __init__(
+        self,
+        *args,
+        guidance_weight=None,
+        guidance_layers=None,
+        energy_function=None,
+        similarity_function=None,
+        eps_clipping_coeff=None,
+        **kwargs
+    ):
         super().__init__(*args, **kwargs)
         self.guidance_weight = guidance_weight
         self.guidance_layers = guidance_layers
         self.energy_function = energy_function
         self.similarity_function = similarity_function
+        self.eps_clipping_coeff = eps_clipping_coeff
 
     def get_eps(self, img, timestep, guidance_scale, text_embeddings, lora_scale=None, added_cond_kwargs=None, **kwargs):
         inv_feature_maps = kwargs.get("inv_feature_maps", None)
@@ -251,11 +261,18 @@ class GuidanceSampler(Sampler):
             img.grad = None
             img.requires_grad = False
         
+        guidance_eps = guidance_eps * self.guidance_weight
+
+        if self.eps_clipping_coeff is not None:
+            guidance_norm, denoise_norm = guidance_eps.norm(), denoise_eps.norm()
+            coeff = (1 / self.eps_clipping_coeff) * guidance_norm / denoise_norm
+            guidance_eps = guidance_eps / max(1, coeff)
+        
         stats["energy"] = energy.item()
-        stats["guidance_norm"] = guidance_eps.norm().item() * self.guidance_weight
+        stats["guidance_norm"] = guidance_eps.norm().item()
         stats["denoise_norm"] = denoise_eps.norm().item()
         stats["timestep"] = timestep.item()
 
         logger.info("step", extra=stats)
 
-        return denoise_eps + self.guidance_weight * guidance_eps
+        return denoise_eps + guidance_eps

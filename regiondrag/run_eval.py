@@ -25,6 +25,8 @@ def main():
 
     logger = logging.getLogger()
     logger.info("params", extra=args.__dict__)
+    logger.info("energy_args", extra=energy_args)
+    logger.info("sim_args", extra=sim_args)
 
     evaluator = DragEvaluator()
     all_distances = []; all_lpips = []; all_names = []
@@ -46,7 +48,8 @@ def main():
                 disable_ip_adapter=not args.ip_adapter,
                 guidance_weight=args.guidance_weight, guidance_layers=args.guidance_layers,
                 method=args.method, sde=(args.sampler == "ddpm"),
-                energy_function=energy_function, similarity_function=similarity_function
+                energy_function=energy_function, similarity_function=similarity_function,
+                eps_clipping_coeff=args.eps_clipping
             )
         elif args.method == 'copy':
             out_image, forward_process, backward_process = drag_copy_paste(drag_data, device=args.device), None, None

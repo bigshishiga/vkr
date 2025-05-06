@@ -173,6 +173,13 @@ def get_args():
     )
 
     parser.add_argument(
+        '--eps-clipping',
+        type=float,
+        default=None,
+        help="If passed, clip the guidance norm to the denoise norm multiplied by this value"
+    )
+
+    parser.add_argument(
         '--disable-kv-copy',
         action='store_true',
         help="If passed, do not perform the key-value copy-paste operation in self-attention layers"

@@ -233,6 +233,7 @@ def drag(
         guidance_weight: float = 1.0,
         energy_function = None,
         similarity_function = None,
+        eps_clipping_coeff = None
     ):
     assert (
         all(guidance_layer in (0, 1, 2, 3) for guidance_layer in guidance_layers) and
@@ -305,8 +306,12 @@ def drag(
             latent = drag_data['out_latent']
         
         if method == 'guidance':
-            sampler = GuidanceSampler(unet=unet, scheduler=scheduler, num_steps=steps,
-                                      guidance_weight=guidance_weight, guidance_layers=guidance_layers, energy_function=energy_function, similarity_function=similarity_function)
+            sampler = GuidanceSampler(
+                unet=unet, scheduler=scheduler, num_steps=steps,
+                guidance_weight=guidance_weight, guidance_layers=guidance_layers,
+                energy_function=energy_function, similarity_function=similarity_function,
+                eps_clipping_coeff=eps_clipping_coeff
+            )
         else:
             sampler = Sampler(unet=unet, scheduler=scheduler, num_steps=steps)
 
