@@ -191,11 +191,12 @@ class Sampler():
 
 
 class GuidanceSampler(Sampler):
-    def __init__(self, *args, guidance_weight=None, guidance_layers=None, energy_function=None, **kwargs):
+    def __init__(self, *args, guidance_weight=None, guidance_layers=None, energy_function=None, similarity_function=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.guidance_weight = guidance_weight
         self.guidance_layers = guidance_layers
         self.energy_function = energy_function
+        self.similarity_function = similarity_function
 
     def get_eps(self, img, timestep, guidance_scale, text_embeddings, lora_scale=None, added_cond_kwargs=None, **kwargs):
         inv_feature_maps = kwargs.get("inv_feature_maps", None)
@@ -231,15 +232,12 @@ class GuidanceSampler(Sampler):
                     feature_map = torch.nn.functional.interpolate(feature_map, size=(64, 64), mode="bilinear", align_corners=False)
                     inv_feature_map = torch.nn.functional.interpolate(inv_feature_map, size=(64, 64), mode="bilinear", align_corners=False)
 
-                sim = (
-                    torch.nn.functional.cosine_similarity(
-                        feature_map[0, :, source[:, 1], source[:, 0]],
-                        inv_feature_map[0, :, target[:, 1], target[:, 0]],
-                        dim=1
-                    )
-                    + 1.0
-                ) / 2.0
-                sim = sim.mean()
+                sim = self.similarity_function(
+                    feature_map=feature_map,
+                    inv_feature_map=inv_feature_map,
+                    source=source,
+                    target=target
+                )
                 total_sim = total_sim + sim
 
                 stats[f"sim_{layer}"] = sim.item()

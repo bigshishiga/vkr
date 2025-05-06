@@ -9,7 +9,7 @@ import logging
 
 from region_utils.drag import drag, get_drag_data, get_meta_data, drag_copy_paste, drag_id
 from region_utils.evaluator import DragEvaluator
-from region_utils.energy import get_energy_function
+from region_utils.energy import get_energy_function, get_similarity_function
 from eval_utils import setup_logging, get_args, has_uncommitted_changes
 
 
@@ -17,10 +17,11 @@ def main():
     if has_uncommitted_changes() and not os.environ.get("DEBUG"):
         raise ValueError("Commit your changes before running the evaluation.")
 
-    args, energy_args = get_args()
+    args, energy_args, sim_args = get_args()
     setup_logging(os.path.join(args.save_dir, "log.log"))
 
     energy_function = get_energy_function(args.energy_function, **energy_args)
+    similarity_function = get_similarity_function(args.sim_function, **sim_args)
 
     logger = logging.getLogger()
     logger.info("params", extra=args.__dict__)
@@ -38,14 +39,15 @@ def main():
         logger.info("image", extra={"path": data_path})
 
         if args.method in ('regiondrag', 'instantdrag', 'guidance'):
-            out_image, forward_process, backward_process = drag(drag_data, args.steps, args.start_t, args.end_t, args.noise_scale, args.seed,
-                            progress=gr.Progress(), device=args.device,
-                            disable_kv_copy=args.disable_kv_copy,
-                            disable_ip_adapter=not args.ip_adapter,
-                            guidance_weight=args.guidance_weight, guidance_layers=args.guidance_layers,
-                            method=args.method, sde=(args.sampler == "ddpm"),
-                            energy_function=energy_function
-                        )
+            out_image, forward_process, backward_process = drag(
+                drag_data, args.steps, args.start_t, args.end_t, args.noise_scale, args.seed,
+                progress=gr.Progress(), device=args.device,
+                disable_kv_copy=args.disable_kv_copy,
+                disable_ip_adapter=not args.ip_adapter,
+                guidance_weight=args.guidance_weight, guidance_layers=args.guidance_layers,
+                method=args.method, sde=(args.sampler == "ddpm"),
+                energy_function=energy_function, similarity_function=similarity_function
+            )
         elif args.method == 'copy':
             out_image, forward_process, backward_process = drag_copy_paste(drag_data, device=args.device), None, None
         elif args.method == 'id':

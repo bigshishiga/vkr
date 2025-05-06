@@ -232,6 +232,7 @@ def drag(
         guidance_layers: list[int] = [1, 2],
         guidance_weight: float = 1.0,
         energy_function = None,
+        similarity_function = None,
     ):
     assert (
         all(guidance_layer in (0, 1, 2, 3) for guidance_layer in guidance_layers) and
@@ -305,7 +306,7 @@ def drag(
         
         if method == 'guidance':
             sampler = GuidanceSampler(unet=unet, scheduler=scheduler, num_steps=steps,
-                                      guidance_weight=guidance_weight, guidance_layers=guidance_layers, energy_function=energy_function)
+                                      guidance_weight=guidance_weight, guidance_layers=guidance_layers, energy_function=energy_function, similarity_function=similarity_function)
         else:
             sampler = Sampler(unet=unet, scheduler=scheduler, num_steps=steps)
 

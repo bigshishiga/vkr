@@ -166,6 +166,13 @@ def get_args():
     )
 
     parser.add_argument(
+        '--sim-function',
+        type=str,
+        default=None,
+        help="Similarity function to use for the guidance. Options: 'cosine_local'"
+    )
+
+    parser.add_argument(
         '--disable-kv-copy',
         action='store_true',
         help="If passed, do not perform the key-value copy-paste operation in self-attention layers"
@@ -204,6 +211,11 @@ def get_args():
         for k, v in unknown.items()
         if k.startswith("energy-")
     }
+    sim_args = {
+        k.removeprefix("sim-"): v
+        for k, v in unknown.items()
+        if k.startswith("sim-")
+    }
 
     # Validate arguments
     assert args.data_dir.startswith('drag_data/'), "Data should lie in 'drag_data/'"
@@ -217,6 +229,7 @@ def get_args():
     # Log stuff
     print(f"Using args: {args}", end="\n\n")
     print(f"Args for the energy function: {energy_args}", end="\n\n")
+    print(f"Args for the similarity function: {sim_args}", end="\n\n")
     print("*" * 100)
 
-    return args, energy_args
+    return args, energy_args, sim_args
