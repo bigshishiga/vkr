@@ -49,12 +49,13 @@ def main():
                 guidance_weight=args.guidance_weight, guidance_layers=args.guidance_layers,
                 method=args.method, sde=(args.sampler == "ddpm"),
                 energy_function=energy_function, similarity_function=similarity_function,
-                eps_clipping_coeff=args.eps_clipping
+                eps_clipping_coeff=args.eps_clipping,
+                sd_version=args.sd_version
             )
         elif args.method == 'copy':
-            out_image, forward_process, backward_process = drag_copy_paste(drag_data, device=args.device), None, None
+            out_image, forward_process, backward_process = drag_copy_paste(drag_data, sd_version=args.sd_version, device=args.device), None, None
         elif args.method == 'id':
-            out_image, forward_process, backward_process = drag_id(drag_data, device=args.device), None, None
+            out_image, forward_process, backward_process = drag_id(drag_data, sd_version=args.sd_version, device=args.device), None, None
 
         if args.save_dir is not None:
             file_name = data_path.removeprefix(f'drag_data/{args.bench_name}/') + '.png'

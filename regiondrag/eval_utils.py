@@ -88,6 +88,13 @@ def get_args():
     parser = argparse.ArgumentParser(description='Run the drag operation.')
 
     parser.add_argument(
+        '--sd-version',
+        type=str,
+        default='v1-5',
+        help="Version of the Stable Diffusion model to use. Options: 'v1-5', 'v1-5-inpainting', 'v2-1', 'xl'"
+    )
+
+    parser.add_argument(
         '--data-dir',
         type=str,
         required=True,

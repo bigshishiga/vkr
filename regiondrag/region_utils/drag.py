@@ -15,8 +15,6 @@ sys.path.append('.')
 
 from regiondrag.region_utils.cycle_sde import Sampler, GuidanceSampler, get_img_latent, get_text_embed, load_model, set_seed
 
-# select version from v1-5 (recommended), v2-1, xl
-sd_version = 'v1-5'
 
 # --- To include: InstantDrag (https://github.com/SNU-VGILab/InstantDrag) --- #
 sys.path.append('instantdrag/')
@@ -181,7 +179,7 @@ def backward(scheduler, sampler, steps, start_t, end_t, noise_scale, inv_latents
 
 
 @torch.no_grad()
-def drag_copy_paste(drag_data, device=None):
+def drag_copy_paste(drag_data, sd_version=None, device=None):
     torch_dtype = torch.float16 if 'cuda' in device else torch.float32
 
     global vae, tokenizer, text_encoder, unet, scheduler, feature_extractor, image_encoder, tokenizer_2, text_encoder_2
@@ -200,7 +198,7 @@ def drag_copy_paste(drag_data, device=None):
     return target_image
 
 @torch.no_grad()
-def drag_id(drag_data, device=None):
+def drag_id(drag_data, sd_version=None, device=None):
     torch_dtype = torch.float16 if 'cuda' in device else torch.float32
 
     global vae, tokenizer, text_encoder, unet, scheduler, feature_extractor, image_encoder, tokenizer_2, text_encoder_2
@@ -233,7 +231,8 @@ def drag(
         guidance_weight: float = 1.0,
         energy_function = None,
         similarity_function = None,
-        eps_clipping_coeff = None
+        eps_clipping_coeff = None,
+        sd_version = None
     ):
     assert (
         all(guidance_layer in (0, 1, 2, 3) for guidance_layer in guidance_layers) and
