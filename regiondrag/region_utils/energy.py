@@ -5,6 +5,11 @@ def get_dragon_energy_function(alpha, beta):
         return 1 / (float(alpha) + float(beta) * x)
     return energy_function
 
+def get_negative_energy_function():
+    def energy_function(x):
+        return -x
+    return energy_function
+
 def get_cosine_local_similarity_function():
     def similarity_function(feature_map, inv_feature_map, source, target):
         sim = (
@@ -31,6 +36,8 @@ def get_cosine_global_similarity_function():
 def get_energy_function(name, **kwargs):
     if name == "dragon":
         return get_dragon_energy_function(**kwargs)
+    elif name == "negative":
+        return get_negative_energy_function(**kwargs)
     elif name is None:
         return None
     else:

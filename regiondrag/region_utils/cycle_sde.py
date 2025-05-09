@@ -278,13 +278,16 @@ class GuidanceSampler(Sampler):
             mask = torch.from_numpy(mask).to(guidance_eps.device)
         else:
             mask = torch.from_numpy(mask).fill_(1).to(torch.float32).to(guidance_eps.device)
+        
+        stats["energy"] = energy.item()
+        stats["guidance_norm_unclipped"] = guidance_eps.norm().item()
+        stats["guidance_norm_masked_unclipped"] = (guidance_eps * mask).norm().item()
 
         if self.eps_clipping_coeff is not None:
             guidance_norm_masked, denoise_norm_masked = (guidance_eps * mask).norm(), (denoise_eps * mask).norm()
             coeff = (1 / self.eps_clipping_coeff) * guidance_norm_masked / denoise_norm_masked
             guidance_eps = guidance_eps / max(1, coeff)
         
-        stats["energy"] = energy.item()
         stats["guidance_norm"] = guidance_eps.norm().item()
         stats["denoise_norm"] = denoise_eps.norm().item()
         stats["guidance_norm_masked"] = (guidance_eps * mask).norm().item()
