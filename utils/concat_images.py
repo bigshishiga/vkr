@@ -22,6 +22,9 @@ def concatenate_images_horizontally(img1_path, img2_path, output_path):
 
 def process_directory(source_dir1, source_dir2, output_dir):
     for root, dirs, files in os.walk(source_dir2):
+        if "process" in root:
+            continue
+
         relative_path = os.path.relpath(root, source_dir2)
         output_subdir = os.path.join(output_dir, relative_path)
         
