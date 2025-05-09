@@ -4,6 +4,7 @@
 import torch
 import random
 import numpy as np
+from scipy.ndimage import binary_dilation
 from PIL import Image
 from torchvision import transforms
 from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline, DPMSolverMultistepScheduler
@@ -199,6 +200,7 @@ class GuidanceSampler(Sampler):
         energy_function=None,
         similarity_function=None,
         eps_clipping_coeff=None,
+        guidance_mask_radius=None,
         **kwargs
     ):
         super().__init__(*args, **kwargs)
@@ -207,6 +209,7 @@ class GuidanceSampler(Sampler):
         self.energy_function = energy_function
         self.similarity_function = similarity_function
         self.eps_clipping_coeff = eps_clipping_coeff
+        self.guidance_mask_radius = guidance_mask_radius
 
     def get_eps(self, img, timestep, guidance_scale, text_embeddings, lora_scale=None, added_cond_kwargs=None, **kwargs):
         inv_feature_maps = kwargs.get("inv_feature_maps", None)
@@ -238,9 +241,12 @@ class GuidanceSampler(Sampler):
             stats = {}
             for layer, feature_map, inv_feature_map in zip(self.guidance_layers, feature_maps, inv_feature_maps):
                 assert feature_map.shape == inv_feature_map.shape, (feature_map.shape, inv_feature_map.shape)
-                if feature_map.shape[-1] != 64:
-                    feature_map = torch.nn.functional.interpolate(feature_map, size=(64, 64), mode="bilinear", align_corners=False)
-                    inv_feature_map = torch.nn.functional.interpolate(inv_feature_map, size=(64, 64), mode="bilinear", align_corners=False)
+
+                # Feature map from lower layers. Needs to be upsampled.
+                if feature_map.shape[-1] != img.shape[-1] or feature_map.shape[-2] != img.shape[-2]:
+                    shape = (img.shape[-2], img.shape[-1])
+                    feature_map = torch.nn.functional.interpolate(feature_map, size=shape, mode="bilinear", align_corners=False)
+                    inv_feature_map = torch.nn.functional.interpolate(inv_feature_map, size=shape, mode="bilinear", align_corners=False)
 
                 sim = self.similarity_function(
                     feature_map=feature_map,
@@ -263,16 +269,27 @@ class GuidanceSampler(Sampler):
         
         guidance_eps = guidance_eps * self.guidance_weight
 
+        mask = np.zeros((img.shape[-2], img.shape[-1]))
+        if self.guidance_mask_radius is not None:
+            target_np = target.cpu().numpy()
+            mask[target_np[:, 1], target_np[:, 0]] = 1
+            mask = binary_dilation(mask, iterations=self.guidance_mask_radius)
+            mask = torch.from_numpy(mask).to(guidance_eps.device)
+        else:
+            mask = torch.from_numpy(mask).fill_(1).to(torch.float32).to(guidance_eps.device)
+
         if self.eps_clipping_coeff is not None:
-            guidance_norm, denoise_norm = guidance_eps.norm(), denoise_eps.norm()
-            coeff = (1 / self.eps_clipping_coeff) * guidance_norm / denoise_norm
+            guidance_norm_masked, denoise_norm_masked = (guidance_eps * mask).norm(), (denoise_eps * mask).norm()
+            coeff = (1 / self.eps_clipping_coeff) * guidance_norm_masked / denoise_norm_masked
             guidance_eps = guidance_eps / max(1, coeff)
         
         stats["energy"] = energy.item()
         stats["guidance_norm"] = guidance_eps.norm().item()
         stats["denoise_norm"] = denoise_eps.norm().item()
+        stats["guidance_norm_masked"] = (guidance_eps * mask).norm().item()
+        stats["denoise_norm_masked"] = (denoise_eps * mask).norm().item()
         stats["timestep"] = timestep.item()
 
         logger.info("step", extra=stats)
 
-        return denoise_eps + guidance_eps
+        return denoise_eps + guidance_eps * mask

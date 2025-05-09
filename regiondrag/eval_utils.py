@@ -152,6 +152,13 @@ def get_args():
     )
 
     parser.add_argument(
+        '--guidance-mask-radius',
+        type=int,
+        default=None,
+        help="Radius of the guidance mask. If None, guidance masking is disabled"
+    )
+
+    parser.add_argument(
         '--guidance-weight',
         type=float,
         default=1.0,

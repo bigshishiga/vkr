@@ -49,7 +49,7 @@ def main():
                 guidance_weight=args.guidance_weight, guidance_layers=args.guidance_layers,
                 method=args.method, sde=(args.sampler == "ddpm"),
                 energy_function=energy_function, similarity_function=similarity_function,
-                eps_clipping_coeff=args.eps_clipping,
+                eps_clipping_coeff=args.eps_clipping, guidance_mask_radius=args.guidance_mask_radius,
                 sd_version=args.sd_version
             )
         elif args.method == 'copy':

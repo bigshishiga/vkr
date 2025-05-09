@@ -232,7 +232,8 @@ def drag(
         energy_function = None,
         similarity_function = None,
         eps_clipping_coeff = None,
-        sd_version = None
+        guidance_mask_radius: int = None,
+        sd_version = None,
     ):
     assert (
         all(guidance_layer in (0, 1, 2, 3) for guidance_layer in guidance_layers) and
@@ -309,7 +310,7 @@ def drag(
                 unet=unet, scheduler=scheduler, num_steps=steps,
                 guidance_weight=guidance_weight, guidance_layers=guidance_layers,
                 energy_function=energy_function, similarity_function=similarity_function,
-                eps_clipping_coeff=eps_clipping_coeff
+                eps_clipping_coeff=eps_clipping_coeff, guidance_mask_radius=guidance_mask_radius
             )
         else:
             sampler = Sampler(unet=unet, scheduler=scheduler, num_steps=steps)
