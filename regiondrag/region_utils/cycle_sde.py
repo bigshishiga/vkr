@@ -15,12 +15,13 @@ logger = logging.getLogger(__name__)
 
 def load_model(version="v1-5", torch_device='cuda', torch_dtype=torch.float16, ip_adapter=True, verbose=True):
     pipe_paths = {
-        'v1-5' : "runwayml/stable-diffusion-v1-5", 
-        'v2-1' : "stabilityai/stable-diffusion-2-1",
-        'xl'   : "stabilityai/stable-diffusion-xl-base-1.0"
+        'v1-5':            "runwayml/stable-diffusion-v1-5", 
+        'v1-5-inpainting': "stable-diffusion-v1-5/stable-diffusion-inpainting",
+        'v2-1':            "stabilityai/stable-diffusion-2-1",
+        'xl':              "stabilityai/stable-diffusion-xl-base-1.0"
     }
     pipe_path = pipe_paths.get(version, pipe_paths['v1-5'])
-    pipe = StableDiffusionPipeline if version in ['v1-5', 'v2-1'] else StableDiffusionXLPipeline
+    pipe = StableDiffusionPipeline if version in ['v1-5', 'v1-5-inpainting', 'v2-1'] else StableDiffusionXLPipeline
     
     if verbose:
         print(f'Loading model from {pipe_path}.')
