@@ -119,7 +119,7 @@ def get_args():
     parser.add_argument(
         '--sampler',
         choices=["ddim", "ddpm"],
-        default="ddim",
+        default="ddpm",
         help="Sampler to use for the drag operation. Options: 'ddim', 'ddpm'"
     )
 
