@@ -184,3 +184,4 @@ minibench
 *.jpeg
 *.png
 test.ipynb
+test.py
