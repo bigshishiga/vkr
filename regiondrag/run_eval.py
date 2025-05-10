@@ -1,3 +1,4 @@
+import json
 import os
 import torch
 from diffusers.utils import make_image_grid
@@ -90,14 +91,26 @@ def main():
         print(f'MD: {mean_dist:.4f}\nLPIPS: {mean_lpips:.4f}\n')
 
         if args.save_dir is not None:
-            md = np.array(all_distances)
-            lpips = np.array(all_lpips)
+            items = [
+                {
+                    "name": name,
+                    "md": md,
+                    "lpips": lpips
+                }
+                for name, md, lpips in zip(all_names, all_distances, all_lpips)
+            ]
 
-            filepath = os.path.join(args.save_dir, 'metrics.npz')
-            np.savez(
-                filepath, md=md, lpips=lpips, names=all_names,
-                mean_md=np.array(mean_dist), mean_lpips=np.array(mean_lpips)
-            )
+            filepath = os.path.join(args.save_dir, 'metrics.json')
+            with open(filepath, 'w') as f:
+                json.dump(
+                    {
+                        "mean_md": mean_dist,
+                        "mean_lpips": mean_lpips,
+                        "items": items
+                    },
+                    f,
+                    indent=4
+                )
 
 if __name__ == '__main__':
     main()

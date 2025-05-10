@@ -32,6 +32,19 @@ def get_cosine_global_similarity_function():
         return sim
     return similarity_function
 
+def get_cosine_mixed_similarity_function(local_w):
+    local_w = float(local_w)
+    assert local_w >= 0 and local_w <= 1
+
+    local_similarity_function = get_cosine_local_similarity_function()
+    global_similarity_function = get_cosine_global_similarity_function()
+
+    def similarity_function(feature_map, inv_feature_map, source, target):
+        local_sim = local_similarity_function(feature_map, inv_feature_map, source, target)
+        global_sim = global_similarity_function(feature_map, inv_feature_map, source, target)
+        return local_w * local_sim + (1 - local_w) * global_sim
+
+    return similarity_function
 
 def get_energy_function(name, **kwargs):
     if name == "dragon":
@@ -48,6 +61,8 @@ def get_similarity_function(name, **kwargs):
         return get_cosine_local_similarity_function(**kwargs)
     elif name == "cosine_global":
         return get_cosine_global_similarity_function(**kwargs)
+    elif name == "cosine_mixed":
+        return get_cosine_mixed_similarity_function(**kwargs)
     elif name is None:
         return None
     else:
