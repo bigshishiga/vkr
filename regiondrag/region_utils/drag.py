@@ -79,7 +79,7 @@ def get_border_points(points):
     border_points = np.concatenate([contour[:, 0, :] for contour in contours], axis=0)
     return border_points
 
-def postprocess(vae, latent, ori_image, mask):
+def postprocess(vae, latent, ori_image, mask, blur_radius=0):
     dtype = latent.dtype
     upcast_dtype = torch.float32 if 'xl-base-1.0' in vae.config._name_or_path and dtype == torch.float16 else dtype
     H, W = ori_image.shape[:2]
@@ -92,9 +92,14 @@ def postprocess(vae, latent, ori_image, mask):
     image = vae.decode(latent / 0.18215).sample / 2 + 0.5
     image = (image.clamp(0, 1).permute(0, 2, 3, 1)[0].cpu().numpy() * 255).astype(np.uint8)
     image = cv2.resize(image, (W, H))
-    
+
     if not np.all(mask == 1):
-        image = np.where(mask[:, :, None], image, ori_image)
+        if blur_radius > 0:
+            mask_blurred = cv2.GaussianBlur(mask.astype(np.float32), (blur_radius, blur_radius), 0)[:, :, None]
+            image = mask_blurred * image + (1 - mask_blurred) * ori_image
+            image = np.clip(image, 0, 255).astype(np.uint8)
+        else:
+            image = np.where(mask[:, :, None], image, ori_image)
     
     return image
 
@@ -234,6 +239,7 @@ def drag(
         eps_clipping_coeff = None,
         guidance_mask_radius: int = None,
         sd_version = None,
+        mask_blur_radius: int = 0,
     ):
     assert (
         all(guidance_layer in (0, 1, 2, 3) for guidance_layer in guidance_layers) and
@@ -339,7 +345,7 @@ def drag(
             hook_latents, noises, cfg_scales = forward(scheduler, sampler, steps, start_t, latent, prompt_embeds, added_cond_kwargs, progress=progress, sde=sde)
             start_latent = None
             unregister(*key_handlers, *value_handlers, *feature_handlers)
-            forward_process = [postprocess(vae, latent, ori_image, mask) for latent in hook_latents]
+            forward_process = [postprocess(vae, latent, ori_image, mask, mask_blur_radius) for latent in hook_latents]
 
             keys = reverse_and_repeat_every_n_elements(keys, n=len(key_handlers))
             values = reverse_and_repeat_every_n_elements(values, n=len(value_handlers))
@@ -351,8 +357,8 @@ def drag(
 
             drag_data['out_latent'] = latent
             drag_data['latents'] = latents
-            image = postprocess(vae, latent, ori_image, mask)
-            backward_process = [forward_process[-1]] + [postprocess(vae, latent, ori_image, mask) for latent in latents]
+            image = postprocess(vae, latent, ori_image, mask, mask_blur_radius)
+            backward_process = [forward_process[-1]] + [postprocess(vae, latent, ori_image, mask, mask_blur_radius) for latent in latents]
             backward_process.reverse()
 
     elif method == 'instantdrag':

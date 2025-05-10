@@ -225,6 +225,13 @@ def get_args():
         help="If passed, override saving directory"
     )
 
+    parser.add_argument(
+        '--mask-blur-radius',
+        type=int,
+        default=63,
+        help="Radius of the gaussian blur applied to the mask"
+    )
+
     parser.add_argument('--device', type=str, default='cuda')
     parser.add_argument('--seed', type=int, default=42)
 
