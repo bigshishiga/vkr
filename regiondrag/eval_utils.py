@@ -42,7 +42,15 @@ def setup_logging(filename):
     os.makedirs(os.path.dirname(filename), exist_ok=True)
     logHandler = logging.FileHandler(filename)
 
-    formatter = jsonlogger.JsonFormatter()
+    class CustomJsonFormatter(jsonlogger.JsonFormatter):
+        def process_log_record(self, log_record):
+            # Round all floats to 2 decimal places
+            for key, value in log_record.items():
+                if isinstance(value, float):
+                    log_record[key] = round(value, 3)
+            return super().process_log_record(log_record)
+
+    formatter = CustomJsonFormatter()
     logHandler.setFormatter(formatter)
 
     logger.addHandler(logHandler)
