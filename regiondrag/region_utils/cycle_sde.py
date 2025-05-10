@@ -277,7 +277,7 @@ class GuidanceSampler(Sampler):
             mask = binary_dilation(mask, iterations=self.guidance_mask_radius)
             mask = torch.from_numpy(mask).to(guidance_eps.device)
         else:
-            mask = torch.from_numpy(mask).fill_(1).to(torch.float32).to(guidance_eps.device)
+            mask = torch.from_numpy(mask).fill_(1).to(guidance_eps.dtype).to(guidance_eps.device)
         
         stats["energy"] = energy.item()
         stats["guidance_norm_unclipped"] = guidance_eps.norm().item()
