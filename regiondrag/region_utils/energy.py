@@ -29,6 +29,7 @@ def get_cosine_global_similarity_function():
         v1 = feature_map[0, :, target[:, 1], target[:, 0]].mean(dim=1)
         v2 = inv_feature_map[0, :, source[:, 1], source[:, 0]].mean(dim=1)
         sim = torch.nn.functional.cosine_similarity(v1, v2, dim=0)
+        sim = (sim + 1.0) / 2.0
         return sim
     return similarity_function
 
