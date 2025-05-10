@@ -1,5 +1,24 @@
 import torch
 
+def feature_map_filter(feature_map, kernel_size=1):
+    if kernel_size == 1:
+        return feature_map
+
+    # Pad H and W dimensions
+    feature_map_padded = torch.nn.functional.pad(
+        feature_map,
+        (kernel_size // 2, kernel_size // 2, kernel_size // 2, kernel_size // 2),
+        mode="constant",
+        value=0
+    )
+
+    # Kernel for the averaging filter
+    channels = feature_map.shape[1]
+    kernel = torch.ones(channels, 1, kernel_size, kernel_size) / kernel_size**2
+    kernel = kernel.to(device=feature_map.device, dtype=feature_map.dtype)
+
+    return torch.nn.functional.conv2d(feature_map_padded, kernel, groups=channels)
+
 def get_dragon_energy_function(alpha, beta):
     def energy_function(x):
         return 1 / (float(alpha) + float(beta) * x)
@@ -10,12 +29,17 @@ def get_negative_energy_function():
         return -x
     return energy_function
 
-def get_cosine_local_similarity_function():
+def get_cosine_local_similarity_function(kernel_size=1):
+    kernel_size = int(kernel_size)
+
     def similarity_function(feature_map, inv_feature_map, source, target):
+        feature_map_filtered = feature_map_filter(feature_map, kernel_size)
+        inv_feature_map_filtered = feature_map_filter(inv_feature_map, kernel_size)
+
         sim = (
             torch.nn.functional.cosine_similarity(
-                feature_map[0, :, target[:, 1], target[:, 0]],
-                inv_feature_map[0, :, source[:, 1], source[:, 0]],
+                feature_map_filtered[0, :, target[:, 1], target[:, 0]],
+                inv_feature_map_filtered[0, :, source[:, 1], source[:, 0]],
                 dim=1
             )
             + 1.0

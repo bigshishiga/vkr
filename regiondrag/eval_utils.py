@@ -243,12 +243,12 @@ def get_args():
     args.commit_hash = get_git_commit_hash()
 
     energy_args= {
-        k.removeprefix("energy-"): v
+        k.removeprefix("energy-").replace("-", "_"): v
         for k, v in unknown.items()
         if k.startswith("energy-")
     }
     sim_args = {
-        k.removeprefix("sim-"): v
+        k.removeprefix("sim-").replace("-", "_"): v
         for k, v in unknown.items()
         if k.startswith("sim-")
     }
