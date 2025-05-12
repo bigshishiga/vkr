@@ -261,9 +261,10 @@ def drag(
         assert source.shape[1] == target.shape[1] == 2
         cur_samples = source.shape[0]
         new_samples = min(max_pairs, cur_samples)
-        idxs = torch.randperm(cur_samples)[:new_samples]
-        source = source[idxs]
-        target = target[idxs]
+        if cur_samples > 1:
+            idxs = torch.randperm(cur_samples)[:new_samples]
+            source = source[idxs]
+            target = target[idxs]
         logger.info(f"subsamples", extra={"before": cur_samples, "after": new_samples})
 
     torch_dtype = torch.float16 if 'cuda' in device else torch.float32
