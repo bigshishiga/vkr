@@ -232,6 +232,13 @@ def get_args():
         help="Radius of the gaussian blur applied to the mask"
     )
 
+    parser.add_argument(
+        '--max-pairs',
+        type=int,
+        default=None,
+        help="Maximum number of region-to-point pairs to use"
+    )
+
     parser.add_argument('--device', type=str, default='cuda')
     parser.add_argument('--seed', type=int, default=42)
 

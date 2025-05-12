@@ -15,6 +15,8 @@ sys.path.append('.')
 
 from regiondrag.region_utils.cycle_sde import Sampler, GuidanceSampler, get_img_latent, get_text_embed, load_model, set_seed
 
+import logging
+logger = logging.getLogger(__name__)
 
 # --- To include: InstantDrag (https://github.com/SNU-VGILab/InstantDrag) --- #
 sys.path.append('instantdrag/')
@@ -240,6 +242,7 @@ def drag(
         guidance_mask_radius: int = None,
         sd_version = None,
         mask_blur_radius: int = 0,
+        max_pairs: int | None = None,
     ):
     assert (
         all(guidance_layer in (0, 1, 2, 3) for guidance_layer in guidance_layers) and
@@ -252,6 +255,16 @@ def drag(
     mask = drag_data['mask']
     source = drag_data['source']
     target = drag_data['target']
+
+    if max_pairs is not None:
+        assert source.shape[0] == target.shape[0]
+        assert source.shape[1] == target.shape[1] == 2
+        cur_samples = source.shape[0]
+        new_samples = min(max_pairs, cur_samples)
+        idxs = torch.randperm(cur_samples)[:new_samples]
+        source = source[idxs]
+        target = target[idxs]
+        logger.info(f"subsamples", extra={"before": cur_samples, "after": new_samples})
 
     torch_dtype = torch.float16 if 'cuda' in device else torch.float32
     

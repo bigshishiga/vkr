@@ -51,7 +51,8 @@ def main():
                 method=args.method, sde=(args.sampler == "ddpm"),
                 energy_function=energy_function, similarity_function=similarity_function,
                 eps_clipping_coeff=args.eps_clipping, guidance_mask_radius=args.guidance_mask_radius,
-                sd_version=args.sd_version, mask_blur_radius=args.mask_blur_radius
+                sd_version=args.sd_version, mask_blur_radius=args.mask_blur_radius,
+                max_pairs=args.max_pairs
             )
         elif args.method == 'copy':
             out_image, forward_process, backward_process = drag_copy_paste(drag_data, sd_version=args.sd_version, device=args.device), None, None
