@@ -119,7 +119,7 @@ def get_args():
     parser.add_argument(
         '--method',
         type=str,
-        default='regiondrag',
+        default='guidance',
         choices=['regiondrag', 'guidance', 'instantdrag', 'copy', 'id'],
         help="Method to use for the drag operation. Options: 'regiondrag', 'guidance', 'instantdrag', 'copy', 'id'"
     )
@@ -134,7 +134,7 @@ def get_args():
     parser.add_argument(
         '--start-t',
         type=float,
-        default=0.5,
+        default=0.75,
         help="Timestep to which the inversion is applied (e.g. 0.5 for 50% of the way through the diffusion process)"
     )
 
@@ -162,14 +162,14 @@ def get_args():
     parser.add_argument(
         '--guidance-mask-radius',
         type=int,
-        default=None,
+        default=4,
         help="Radius of the guidance mask. If None, guidance masking is disabled"
     )
 
     parser.add_argument(
         '--guidance-weight',
         type=float,
-        default=1.0,
+        default=3000.0,
         help="If method is 'guidance', this is the weight of the energy function in denoising step"
     )
 
@@ -183,21 +183,21 @@ def get_args():
     parser.add_argument(
         '--energy-function',
         type=str,
-        default=None,
+        default="dragon",
         help="Energy function to use for the guidance. Options: 'dragon'"
     )
 
     parser.add_argument(
         '--sim-function',
         type=str,
-        default=None,
+        default="cosine_local",
         help="Similarity function to use for the guidance. Options: 'cosine_local'"
     )
 
     parser.add_argument(
         '--eps-clipping',
         type=float,
-        default=None,
+        default=1.0,
         help="If passed, clip the guidance norm to the denoise norm multiplied by this value"
     )
 
@@ -235,7 +235,7 @@ def get_args():
     parser.add_argument(
         '--max-pairs',
         type=int,
-        default=None,
+        default=200,
         help="Maximum number of region-to-point pairs to use"
     )
 
