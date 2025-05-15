@@ -256,7 +256,7 @@ def drag(
     source = drag_data['source']
     target = drag_data['target']
 
-    if max_pairs is not None:
+    if max_pairs:
         assert source.shape[0] == target.shape[0]
         assert source.shape[1] == target.shape[1] == 2
         cur_samples = source.shape[0]
