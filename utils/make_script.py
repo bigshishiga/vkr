@@ -20,8 +20,8 @@ if [ -z "$CUDA_VISIBLE_DEVICES" ]; then
   exit 1
 fi
 
-python3 regiondrag/run_eval.py --data-dir "drag_data/dragbench-dr" --save-dir "{exp_name}" --method guidance {add_args} --energy-alpha 0 --energy-beta 1
-python3 regiondrag/run_eval.py --data-dir "drag_data/dragbench-sr" --save-dir "{exp_name}" --method guidance {add_args} --energy-alpha 0 --energy-beta 1
+python3 src/run_eval.py --data-dir "drag_data/dragbench-dr" --save-dir "{exp_name}" --method guidance {add_args} --energy-alpha 0 --energy-beta 1
+python3 src/run_eval.py --data-dir "drag_data/dragbench-sr" --save-dir "{exp_name}" --method guidance {add_args} --energy-alpha 0 --energy-beta 1
 """
 
 with open(script_name, "w") as f:

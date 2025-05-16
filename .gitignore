@@ -185,4 +185,3 @@ minibench
 *.png
 test.ipynb
 test.py
-*.sh

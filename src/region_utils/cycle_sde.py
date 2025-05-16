@@ -196,12 +196,12 @@ class GuidanceSampler(Sampler):
     def __init__(
         self,
         *args,
-        guidance_weight=None,
-        guidance_layers=None,
+        guidance_weight=3000.0,
+        guidance_layers=[1, 2],
         energy_function=None,
         similarity_function=None,
-        eps_clipping_coeff=None,
-        guidance_mask_radius=None,
+        eps_clipping_coeff=0,
+        guidance_mask_radius=-1,
         **kwargs
     ):
         super().__init__(*args, **kwargs)
@@ -271,7 +271,7 @@ class GuidanceSampler(Sampler):
         guidance_eps = guidance_eps * self.guidance_weight
 
         mask = np.zeros((img.shape[-2], img.shape[-1]))
-        if self.guidance_mask_radius is not None:
+        if self.guidance_mask_radius != -1:
             target_np = target.cpu().numpy()
             mask[target_np[:, 1], target_np[:, 0]] = 1
             mask = binary_dilation(mask, iterations=self.guidance_mask_radius)
@@ -283,7 +283,7 @@ class GuidanceSampler(Sampler):
         stats["guidance_norm_unclipped"] = guidance_eps.norm().item()
         stats["guidance_norm_masked_unclipped"] = (guidance_eps * mask).norm().item()
 
-        if self.eps_clipping_coeff is not None:
+        if self.eps_clipping_coeff != 0:
             guidance_norm_masked, denoise_norm_masked = (guidance_eps * mask).norm(), (denoise_eps * mask).norm()
             coeff = (1 / self.eps_clipping_coeff) * guidance_norm_masked / denoise_norm_masked
             guidance_eps = guidance_eps / max(1, coeff)

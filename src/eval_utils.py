@@ -163,7 +163,7 @@ def get_args():
         '--guidance-mask-radius',
         type=int,
         default=4,
-        help="Radius of the guidance mask. If None, guidance masking is disabled"
+        help="Radius of the guidance mask. If -1, guidance masking is disabled"
     )
 
     parser.add_argument(
@@ -184,21 +184,21 @@ def get_args():
         '--energy-function',
         type=str,
         default="dragon",
-        help="Energy function to use for the guidance. Options: 'dragon'"
+        help="Energy function to use for the guidance. Options: 'dragon', 'negative', 'none'"
     )
 
     parser.add_argument(
         '--sim-function',
         type=str,
         default="cosine_local",
-        help="Similarity function to use for the guidance. Options: 'cosine_local'"
+        help="Similarity function to use for the guidance. Options: 'cosine_local', 'cosine_global', 'none'"
     )
 
     parser.add_argument(
         '--eps-clipping',
         type=float,
         default=1.0,
-        help="If passed, clip the guidance norm to the denoise norm multiplied by this value"
+        help="If passed, clip the guidance norm to the denoise norm multiplied by this value. If 0, no clipping is applied."
     )
 
     parser.add_argument(
@@ -229,14 +229,14 @@ def get_args():
         '--mask-blur-radius',
         type=int,
         default=63,
-        help="Radius of the gaussian blur applied to the mask"
+        help="Radius of the gaussian blur applied to the mask. If 0, no blurring is applied."
     )
 
     parser.add_argument(
         '--max-pairs',
         type=int,
         default=200,
-        help="Maximum number of region-to-point pairs to use"
+        help="Maximum number of region-to-point pairs to use. If -1, all pairs are used."
     )
 
     parser.add_argument('--device', type=str, default='cuda')

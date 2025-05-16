@@ -15,8 +15,8 @@ from scipy.ndimage import binary_dilation, binary_erosion
 import sys
 sys.path.append('.')
 
-from regiondrag.region_utils.drag import drag, get_drag_data, get_meta_data
-from regiondrag.region_utils.evaluator import DragEvaluator
+from src.region_utils.drag import drag, get_drag_data, get_meta_data
+from src.region_utils.evaluator import DragEvaluator
 
 # Setting up the argument parser
 parser = argparse.ArgumentParser(description='Run the drag operation.')

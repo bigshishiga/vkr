@@ -76,7 +76,7 @@ def get_energy_function(name, **kwargs):
         return get_dragon_energy_function(**kwargs)
     elif name == "negative":
         return get_negative_energy_function(**kwargs)
-    elif name is None or name == "null":
+    elif name is None or name.lower() == "none":
         return None
     else:
         raise ValueError(f"Energy function {name} not found")
@@ -88,7 +88,7 @@ def get_similarity_function(name, **kwargs):
         return get_cosine_global_similarity_function(**kwargs)
     elif name == "cosine_mixed":
         return get_cosine_mixed_similarity_function(**kwargs)
-    elif name is None or name == "null":
+    elif name is None or name.lower() == "none":
         return None
     else:
         raise ValueError(f"Similarity function {name} not found")

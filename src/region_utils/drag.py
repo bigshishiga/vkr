@@ -13,7 +13,7 @@ import torch.nn.functional as F
 import sys
 sys.path.append('.')
 
-from regiondrag.region_utils.cycle_sde import Sampler, GuidanceSampler, get_img_latent, get_text_embed, load_model, set_seed
+from src.region_utils.cycle_sde import Sampler, GuidanceSampler, get_img_latent, get_text_embed, load_model, set_seed
 
 import logging
 logger = logging.getLogger(__name__)
@@ -235,14 +235,14 @@ def drag(
         disable_kv_copy=False,
         disable_ip_adapter=False,
         guidance_layers: list[int] = [1, 2],
-        guidance_weight: float = 1.0,
+        guidance_weight: float = 3000.0,
         energy_function = None,
         similarity_function = None,
-        eps_clipping_coeff = None,
-        guidance_mask_radius: int = None,
+        eps_clipping_coeff: float = 0,
+        guidance_mask_radius: int = -1,
         sd_version = None,
         mask_blur_radius: int = 0,
-        max_pairs: int | None = None,
+        max_pairs: int = -1,
     ):
     assert (
         all(guidance_layer in (0, 1, 2, 3) for guidance_layer in guidance_layers) and
@@ -256,7 +256,7 @@ def drag(
     source = drag_data['source']
     target = drag_data['target']
 
-    if max_pairs:
+    if max_pairs != -1:
         assert source.shape[0] == target.shape[0]
         assert source.shape[1] == target.shape[1] == 2
         cur_samples = source.shape[0]
